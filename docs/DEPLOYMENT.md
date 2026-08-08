@@ -28,7 +28,7 @@ locally against either the local lake or the live REST API.
 
 ## What ships, and what does not
 
-The **47 MB DuckDB lake** travels inside the function. It is read-only at serve time, and at
+The **DuckDB lake** travels inside the function (about 90 MB with all eleven cell layers). It is read-only at serve time, and at
 that size shipping it is simpler and faster than fronting it with object storage.
 
 The **900 MB of COG rasters do not ship.** Nothing served reads them — they are pipeline
@@ -86,7 +86,20 @@ is no separate data step.
 - **The lake is a snapshot.** Nothing on Vercel runs the pipeline; the deployed data is
   whatever was in `data/gaia.duckdb` at deploy time. Keeping it current means re-running the
   ingest locally and redeploying.
-- **Cold starts open a 47 MB database**, so the first request after idle is slow. Route
+- **Cold starts open a ~90 MB database**, so the first request after idle is slow. Route
   `maxDuration` is 60 seconds for that reason.
+- **DuckDB files do not shrink on delete.** A cell rebuild leaves the file roughly 50%
+  larger than it needs to be; compact it before deploying:
+
+  ```bash
+  uv run --directory pipeline python - <<'EOF'
+  import duckdb, os
+  src, dst = "data/gaia.duckdb", "data/gaia.compact.duckdb"
+  c = duckdb.connect(":memory:")
+  c.execute(f"ATTACH '{src}' AS old (READ_ONLY)"); c.execute(f"ATTACH '{dst}' AS fresh")
+  c.execute("COPY FROM DATABASE old TO fresh"); c.close()
+  os.replace(dst, src)
+  EOF
+  ```
 - **The Groq free tier is rate limited** at 8,000 tokens per minute across the whole
   deployment, so concurrent playground users will see each other's limit.
