@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Shell } from "@/components/Shell";
+import { Answer } from "@/components/Answer";
 import { Eyebrow } from "@/components/primitives";
 import type { TranscriptEntry } from "@/app/api/chat/route";
 
@@ -189,8 +190,8 @@ export default function PlaygroundPage() {
                 )}
               </div>
             </header>
-            <div className="text-dim px-5 py-5 text-sm leading-relaxed whitespace-pre-wrap">
-              {answer}
+            <div className="px-5 py-5">
+              <Answer markdown={answer} />
             </div>
             {model !== null && (
               <footer className="border-line border-t px-5 py-2.5">
