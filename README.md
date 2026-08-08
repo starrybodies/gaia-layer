@@ -1,5 +1,8 @@
 # Gaia — Ecological Intelligence Layer
 
+**Live: <https://gaia-layer.vercel.app>** — map, substrate report, and an agent querying the
+layer with its full tool transcript shown.
+
 Agent-native ecological ground truth. Validated, provenance-tracked ecological state for a
 defined area, served to AI agents over MCP and to everything else over REST.
 
@@ -38,7 +41,7 @@ response to prove it.
 make setup && make seed && make dev
 ```
 
-Full detail in [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
+Full detail in [`docs/RUNBOOK.md`](docs/RUNBOOK.md). Deployment in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## v0.1 scope
 
