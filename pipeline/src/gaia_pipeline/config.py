@@ -50,7 +50,9 @@ class AreaOfInterest(BaseModel):
     grid_resolution_m: float = Field(default=GRID_RESOLUTION_M, gt=0.0)
 
     @classmethod
-    def from_geojson(cls, path: Path, aoi_id: str, name: str, description: str = "") -> AreaOfInterest:
+    def from_geojson(
+        cls, path: Path, aoi_id: str, name: str, description: str = ""
+    ) -> AreaOfInterest:
         """Load an AOI from a GeoJSON file.
 
         Accepts a bare geometry, a Feature, or a FeatureCollection whose first feature
@@ -59,7 +61,9 @@ class AreaOfInterest(BaseModel):
         raw: Any = json.loads(path.read_text())
         geom = _extract_geometry(raw)
         parsed: Polygon | MultiPolygon = (
-            Polygon.model_validate(geom) if geom["type"] == "Polygon" else MultiPolygon.model_validate(geom)
+            Polygon.model_validate(geom)
+            if geom["type"] == "Polygon"
+            else MultiPolygon.model_validate(geom)
         )
         return cls(aoi_id=aoi_id, name=name, description=description, geometry=parsed)
 
@@ -178,7 +182,9 @@ def ensure_dirs() -> None:
 def default_history_range(today: date | None = None) -> tuple[date, date]:
     """The 12 whole months ending with the last complete month before ``today``."""
     anchor = today or date.today()
-    end_year, end_month = (anchor.year, anchor.month - 1) if anchor.month > 1 else (anchor.year - 1, 12)
+    end_year, end_month = (
+        (anchor.year, anchor.month - 1) if anchor.month > 1 else (anchor.year - 1, 12)
+    )
     end = _last_day_of_month(end_year, end_month)
     months = settings().history_months
     start_month_index = end_year * 12 + (end_month - 1) - (months - 1)

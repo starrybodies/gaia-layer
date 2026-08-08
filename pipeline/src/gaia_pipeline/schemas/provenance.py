@@ -100,9 +100,7 @@ class Method(Strict):
     """The published method a value was computed by, so a consumer can check the maths."""
 
     name: str = Field(min_length=1)
-    citation: str = Field(
-        min_length=1, description="Full bibliographic citation for the method."
-    )
+    citation: str = Field(min_length=1, description="Full bibliographic citation for the method.")
     formula: str | None = None
     doi: str | None = None
     url: str | None = None
