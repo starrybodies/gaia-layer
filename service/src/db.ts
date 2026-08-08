@@ -41,14 +41,15 @@ function schemaFile(name: string): string {
 }
 
 /**
- * Open the claim ledger and attach the measurement lake read-only.
+ * Open a read-only view of the measurement lake.
  *
- * Tables from the lake are addressed as `lake.indicator_value` and so on; `claim` is local.
- * The read-only attach is what lets several API processes serve at once — DuckDB permits
- * concurrent readers, but only one writer, and the writer is the pipeline.
+ * The connection itself is in-memory with the lake attached read-only, deliberately. An
+ * in-memory database takes no file lock of its own, and a read-only attach takes a shared
+ * one, so any number of API and MCP processes can serve the same lake at once. Opening the
+ * lake directly read-write would let the first process to start lock out every other.
  *
- * While an ingest is running it holds the lake's write lock and this will fail. That is
- * reported as a retryable `lake_unavailable`, which is the honest answer: the data is
+ * While an ingest is running, the pipeline holds the lake's exclusive lock and this fails.
+ * That surfaces as a retryable `lake_unavailable`, which is the honest answer: the data is
  * mid-flight, ask again shortly.
  */
 export async function connect(): Promise<DuckDBConnection> {
@@ -60,9 +61,8 @@ export async function connect(): Promise<DuckDBConnection> {
   }
 
   try {
-    instance = await DuckDBInstance.create(claimsPath(), { access_mode: "READ_WRITE" });
+    instance = await DuckDBInstance.create(":memory:");
     connection = await instance.connect();
-    await connection.run(schemaFile("claims.sql"));
     await connection.run(`ATTACH '${lake.replace(/'/g, "''")}' AS lake (READ_ONLY)`);
     return connection;
   } catch (cause) {
@@ -70,6 +70,43 @@ export async function connect(): Promise<DuckDBConnection> {
     instance = undefined;
     throw new LakeUnavailableError(lake, cause instanceof Error ? cause.message : String(cause));
   }
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Run a unit of work against the claim ledger on a short-lived connection.
+ *
+ * The ledger is the one thing the service writes, and DuckDB allows a single writer per
+ * file — so an API process and an MCP process holding it open would lock each other out.
+ * They are both expected to run at once, so the connection is opened for the duration of
+ * the write and closed again, shrinking the contention window from the process lifetime to
+ * a few milliseconds. Collisions inside that window retry with backoff.
+ */
+export async function withClaims<T>(fn: (conn: DuckDBConnection) => Promise<T>): Promise<T> {
+  const attempts = 5;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    let claimsInstance: DuckDBInstance | undefined;
+    let claimsConnection: DuckDBConnection | undefined;
+    try {
+      claimsInstance = await DuckDBInstance.create(claimsPath(), { access_mode: "READ_WRITE" });
+      claimsConnection = await claimsInstance.connect();
+      await claimsConnection.run(schemaFile("claims.sql"));
+      return await fn(claimsConnection);
+    } catch (cause) {
+      lastError = cause;
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (!message.includes("lock") || attempt === attempts - 1) break;
+      await sleep(25 * 2 ** attempt);
+    } finally {
+      claimsConnection?.closeSync();
+      claimsInstance?.closeSync();
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 export async function close(): Promise<void> {
@@ -96,13 +133,23 @@ export async function queryOne(sql: string, params: unknown[] = []): Promise<Row
   return rows[0];
 }
 
+/** Write to the claim ledger. */
 export async function execute(sql: string, params: unknown[] = []): Promise<void> {
-  const conn = await connect();
-  if (params.length > 0) {
-    await conn.run(sql, params as never[]);
-  } else {
-    await conn.run(sql);
-  }
+  await withClaims(async (conn) => {
+    if (params.length > 0) await conn.run(sql, params as never[]);
+    else await conn.run(sql);
+  });
+}
+
+/** Read from the claim ledger. */
+export async function queryClaims(sql: string, params: unknown[] = []): Promise<Row[]> {
+  return withClaims(async (conn) => {
+    const reader =
+      params.length > 0
+        ? await conn.runAndReadAll(sql, params as never[])
+        : await conn.runAndReadAll(sql);
+    return reader.getRowObjects() as Row[];
+  });
 }
 
 /** True when the lake exists and has at least one ingested area. */

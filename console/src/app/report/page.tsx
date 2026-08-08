@@ -85,6 +85,14 @@ export default async function ReportPage() {
   // Narrowed together so the JSX below can read both without repeated null checks.
   const score = substrate === null ? undefined : substrate.score.value;
 
+  // The chain shown in full is the substrate score's heaviest component, falling back to
+  // whatever is available. Showing the alphabetically first indicator instead would put
+  // "days since rain" in front of a reader who came to see how the satellite work is done.
+  const traced =
+    state?.indicators.find((i) => i.indicator === score?.components[0]?.indicator) ??
+    state?.indicators.find((i) => i.indicator === "ndmi") ??
+    state?.indicators[0];
+
   return (
     <Shell active="/report">
       <article className="mx-auto max-w-5xl px-6 py-10">
@@ -330,7 +338,7 @@ export default async function ReportPage() {
         )}
 
         {/* ------------------------------------------------------- provenance */}
-        {state !== null && state.indicators.length > 0 && (
+        {state !== null && traced !== undefined && (
           <section className="py-8">
             <h2 className="numeric text-[11px] tracking-[0.18em] text-base-400 uppercase">
               Provenance
@@ -340,8 +348,11 @@ export default async function ReportPage() {
               the rest are reachable by claim id through <span className="numeric">get_provenance</span>.
             </p>
             <div className="mt-5 grid gap-8 lg:grid-cols-2">
-              <Panel title={`Chain for ${label(state.indicators[0]!.indicator)}`}>
-                <ProvenanceChain steps={state.indicators[0]!.provenance} />
+              <Panel title={`Chain for ${label(traced.indicator)}`}>
+                <ProvenanceChain steps={traced.provenance} />
+                <div className="mt-4">
+                  <Citation method={traced.method} />
+                </div>
               </Panel>
               <Panel title="Claim ids">
                 <ul className="space-y-2">

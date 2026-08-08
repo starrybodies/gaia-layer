@@ -13,6 +13,7 @@ import { ServiceError, isPopulated, lakePath } from "@gaia/service";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Context, Next } from "hono";
+import { rateLimit } from "./rate-limit.js";
 import { routes } from "./routes.js";
 
 const PORT = Number(process.env["API_PORT"] ?? 8811);
@@ -48,6 +49,7 @@ async function apiKeyAuth(c: Context, next: Next): Promise<Response | void> {
 
 // The console runs on a different port, so it is a cross-origin caller by construction.
 app.use("*", cors({ origin: (origin) => origin, allowHeaders: [API_KEY_HEADER, "content-type"] }));
+app.use("*", rateLimit());
 app.use("*", apiKeyAuth);
 
 app.onError((err, c) => {
@@ -116,5 +118,6 @@ if (process.env["NODE_ENV"] !== "test") {
       ? `[api] api key required via ${API_KEY_HEADER}`
       : "[api] no GAIA_API_KEY set — the API is unauthenticated",
   );
+  console.log(`[api] rate limit ${process.env["GAIA_RATE_LIMIT"] ?? 120} requests/minute/address`);
   serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" });
 }

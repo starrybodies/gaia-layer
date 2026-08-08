@@ -8,7 +8,17 @@
 
 import { assertProvenanced } from "@gaia/core";
 import { claimIdFor, recordClaims, type ClaimRecord } from "./claims.js";
-import { isoDate, isoTimestamp, json, num, numOrNull, query, queryOne, str } from "./db.js";
+import {
+  isoDate,
+  isoTimestamp,
+  json,
+  num,
+  numOrNull,
+  query,
+  queryClaims,
+  queryOne,
+  str,
+} from "./db.js";
 import {
   AoiNotIngestedError,
   ClaimNotFoundError,
@@ -26,7 +36,7 @@ import {
   type NumericEnvelope,
   type RejectedValue,
 } from "./rows.js";
-import { effectiveSampleSize, welchTTest } from "./stats.js";
+import { welchTTest } from "./stats.js";
 import { interpretSubstrateBand, summariseComparison, summariseState } from "./summary.js";
 import { computeTrend, toTrendEnvelope, type TrendEnvelope } from "./trends.js";
 
@@ -372,7 +382,8 @@ export async function getWildfireSubstrateScore(
 // ---------------------------------------------------------------------- 3. provenance
 
 export async function getProvenance(claimId: string): Promise<unknown> {
-  const row = await queryOne("SELECT * FROM claim WHERE claim_id = $1", [claimId]);
+  const rows = await queryClaims("SELECT * FROM claim WHERE claim_id = $1", [claimId]);
+  const row = rows[0];
   if (row === undefined) throw new ClaimNotFoundError(claimId);
 
   const sourceIds = json<string[]>(row["source_ids"], []);
@@ -479,25 +490,61 @@ export async function comparePeriods(
 
     const delta = envelopeB.value - envelopeA.value;
 
-    // Effective sample size, not raw pixel count. Neighbouring 20 m pixels are not
-    // independent observations, and treating them as such would make a difference of
-    // 0.001 look overwhelmingly significant.
-    const nA = effectiveSampleSize(
-      mergedA.stats?.valid_pixels ?? 0,
-      aoi.grid_resolution_m,
-    );
-    const nB = effectiveSampleSize(
-      mergedB.stats?.valid_pixels ?? 0,
-      aoi.grid_resolution_m,
-    );
-    const test = welchTTest(
-      envelopeA.value,
-      mergedA.stats?.std ?? 0,
-      nA,
-      envelopeB.value,
-      mergedB.stats?.std ?? 0,
-      nB,
-    );
+    // Significance is tested between the two periods' *monthly series*, not between their
+    // pixels.
+    //
+    // Testing on pixels was wrong in both directions and both showed up immediately. A
+    // spectral composite has 5.8 million pixels, so a 0.006 difference in NDVI came back
+    // overwhelmingly significant — true given that n, and ecologically meaningless. A
+    // climate value is a point estimate with no spatial spread at all, so its stored
+    // standard deviation is zero, and soil moisture falling by two thirds across a season
+    // came back as no change.
+    //
+    // The question being asked is whether the area's monthly mean differs between two
+    // periods. The variance that belongs in that test is the month-to-month variance of
+    // that mean, and n is the number of months.
+    const monthlyA = seriesA.filter((r) => r.value !== null && r.status !== "rejected");
+    const monthlyB = seriesB.filter((r) => r.value !== null && r.status !== "rejected");
+
+    const spread = (rows: IndicatorRow[]): { mean: number; sd: number; n: number } => {
+      const values = rows.map((r) => r.value as number);
+      const n = values.length;
+      const mean = values.reduce((a, b) => a + b, 0) / Math.max(1, n);
+      const variance =
+        n < 2 ? 0 : values.reduce((a, v) => a + (v - mean) ** 2, 0) / (n - 1);
+      return { mean, sd: Math.sqrt(variance), n };
+    };
+
+    const statsA = spread(monthlyA);
+    const statsB = spread(monthlyB);
+
+    let significant = false;
+    let pValue: number | null = null;
+    let method: string;
+    let interpretation: string;
+
+    if (statsA.n < 2 || statsB.n < 2) {
+      // One month against one month is a difference, not evidence of one. Saying so is
+      // better than running a test that cannot fail to be inconclusive and reporting
+      // "not significant" as though it meant no change.
+      method = "not_tested_insufficient_months";
+      interpretation =
+        `${indicator} differs by ${delta.toFixed(4)} ${envelopeA.unit}, but one or both ` +
+        `periods contain fewer than two monthly observations ` +
+        `(${statsA.n} and ${statsB.n}), so no significance test was run.`;
+    } else {
+      const test = welchTTest(statsA.mean, statsA.sd, statsA.n, statsB.mean, statsB.sd, statsB.n);
+      significant = test.significant;
+      pValue = test.pValue;
+      method = "welch_t_test_alpha_0.05_on_monthly_means";
+      interpretation = test.significant
+        ? `${indicator} changed by ${delta.toFixed(4)} ${envelopeA.unit} between the two ` +
+          `periods, significant at p ${test.pValue.toFixed(4)} across ${statsA.n} and ` +
+          `${statsB.n} monthly observations.`
+        : `${indicator} differs by ${delta.toFixed(4)} ${envelopeA.unit}, which is not ` +
+          `distinguishable from month-to-month variation within each period ` +
+          `(p ${test.pValue.toFixed(3)}, ${statsA.n} and ${statsB.n} months).`;
+    }
 
     const percentChange =
       Math.abs(envelopeA.value) < 1e-6 ? null : (delta / Math.abs(envelopeA.value)) * 100;
@@ -508,14 +555,10 @@ export async function comparePeriods(
       period_b: envelopeB,
       delta,
       percent_change: percentChange,
-      significant: test.significant,
-      significance_method:
-        "welch_t_test_alpha_0.05_on_effective_sample_size_at_200m_decorrelation",
-      p_value: test.pValue,
-      interpretation: test.significant
-        ? `${indicator} changed by ${delta.toFixed(4)} ${envelopeA.unit}, significant at p ${test.pValue.toFixed(4)}.`
-        : `${indicator} differs by ${delta.toFixed(4)} ${envelopeA.unit}, which is not ` +
-          `distinguishable from the spread within each period (p ${test.pValue.toFixed(3)}).`,
+      significant,
+      significance_method: method,
+      p_value: pValue,
+      interpretation,
     });
   }
 

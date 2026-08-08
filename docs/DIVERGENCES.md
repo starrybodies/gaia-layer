@@ -88,3 +88,51 @@ invisible to the operator — `make setup` provisions the interpreter.
 overridable by environment variable.
 
 **Raised:** 2026-08-07 · **Status:** accepted
+
+---
+
+## D-005 — The claim ledger lives in a second database file
+
+**Specified:** A local DuckDB data lake, with claims recorded so `get_provenance` can
+answer for a number served earlier.
+
+**Reality:** DuckDB permits a single writer per file. The pipeline holds the lake's write
+lock for the length of an ingest — 45 minutes or more for a twelve-month seed. With the
+`claim` table inside the lake, the API could not record what it served while data was
+arriving, and could not read either. This was not theoretical: it failed the first time the
+service was pointed at a lake with an ingest in progress.
+
+**Built:** The `claim` table moved to `schema/claims.sql` and its own file, `claims.duckdb`.
+The service opens that read-write and attaches the measurement lake read-only, addressing
+its tables as `lake.indicator_value` and so on. Ownership is now clean — the pipeline owns
+measurements, the service owns claims — and because the attach is read-only, several API
+processes can serve concurrently.
+
+**Residual limitation:** While an ingest is running, the lake's write lock still blocks the
+read-only attach, so the API returns a retryable `lake_unavailable` for the duration. This
+is reported honestly rather than papered over, and the runbook says to let a seed finish
+before starting the services. Closing it properly means having the pipeline take the write
+lock per batch rather than per run, which is a worthwhile change and not a v0.1 one.
+
+**Raised:** 2026-08-07 · **Status:** accepted for v0.1, residual limitation documented
+
+---
+
+## D-006 — The topographic wetness index is computed at 100 m, not 20 m
+
+**Specified:** Terrain derivatives on the analysis grid.
+
+**Reality:** TWI needs flow routed downhill across the whole area, which is a sequential
+walk over every cell — ten million steps at 20 m over the pilot area, in Python.
+
+**Built:** Elevation is block-averaged to 100 m, flow is accumulated by D8 routing there,
+and the index is resampled back to the analysis grid. Elevation, slope and aspect stay at
+20 m; only TWI is coarsened, and the coarsening factor is recorded in its provenance chain.
+
+TWI describes hillslope position rather than fine texture, so the coarser grid costs little
+— and computing it honestly at 100 m is better than approximating it badly at 20 m.
+
+**To close:** A vectorised or compiled flow-accumulation routine, or `richdem`, would allow
+the native grid. Neither is worth a dependency in v0.1.
+
+**Raised:** 2026-08-07 · **Status:** accepted
