@@ -20,8 +20,6 @@ import type { Context, Next } from "hono";
 import { rateLimit } from "./rate-limit.js";
 import { routes } from "./routes.js";
 
-const PORT = Number(process.env["API_PORT"] ?? 8811);
-
 export const app = new Hono();
 
 /**
