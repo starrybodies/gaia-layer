@@ -14,7 +14,7 @@
     "test": "pnpm run build:libs && pnpm -r test",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "build:libs": "pnpm --filter @gaia/core --filter @gaia/service build"
+    "build:libs": "pnpm --filter @gaia/core --filter @gaia/service --filter @gaia/api build"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -36,6 +36,7 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.0",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "next": "^15.5.4"
   }
 }

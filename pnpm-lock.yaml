@@ -23,6 +23,9 @@ importers:
       json-schema-to-zod:
         specifier: ^2.6.1
         version: 2.8.1
+      next:
+        specifier: ^15.5.4
+        version: 15.5.23(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       prettier:
         specifier: ^3.6.2
         version: 3.9.6
