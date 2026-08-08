@@ -63,9 +63,17 @@ const config: NextConfig = {
   // shipping it inside the function is simpler and faster than fronting it with storage.
   outputFileTracingRoot: root,
   outputFileTracingIncludes: {
-    "/api/v1/**": ["../data/gaia.duckdb"],
-    "/report": ["../data/gaia.duckdb"],
-    "/": ["../data/gaia.duckdb"],
+    // The API route is the only thing that opens the lake — the pages reach it over HTTP,
+    // same as any other client. DuckDB itself has to be listed too: externalising it above
+    // means the bundler no longer traces it, so the packages have to be named here or the
+    // function starts without them.
+    "/api/v1/**": [
+      "../data/gaia.duckdb",
+      "../node_modules/.pnpm/@duckdb+node-api@*/**",
+      "../node_modules/.pnpm/@duckdb+node-bindings@*/**",
+      "../node_modules/.pnpm/@duckdb+node-bindings-linux-x64@*/**",
+      "../node_modules/.pnpm/@duckdb+node-bindings-linux-arm64@*/**",
+    ],
   },
 };
 

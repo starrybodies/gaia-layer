@@ -19,7 +19,8 @@
     "react-dom": "^19.1.0",
     "@gaia/api": "workspace:*",
     "@gaia/service": "workspace:*",
-    "hono": "^4.13.1"
+    "hono": "^4.13.1",
+    "@duckdb/node-api": "1.5.5-r.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.13",

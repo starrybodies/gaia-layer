@@ -65,6 +65,10 @@ export interface ResolvedGeometry {
   aoi_id: string | null;
 }
 
+function isRecord(node: unknown): node is Record<string, unknown> {
+  return typeof node === "object" && node !== null && !Array.isArray(node);
+}
+
 const INDICATOR_COLUMNS = `
   value_id, aoi_id, geometry_hash, indicator, family, unit, period_start, period_end,
   value, mean, median, std, p10, p90, minimum, maximum, valid_pixels, total_pixels,
@@ -313,7 +317,31 @@ export async function getWildfireSubstrateScore(
 
   const period = { start: isoDate(row["period_start"]), end: isoDate(row["period_end"]) };
   const score = num(row["score"]);
-  const components = json<unknown[]>(row["components_json"], []);
+  const algorithmVersion = str(row["algorithm_version"]);
+
+  // The pipeline stores each component's underlying envelope, but a claim id is minted at
+  // serve time from the value's own content, so it is filled in here. Without it a reader
+  // could trace the composite but not the measurement that drove it.
+  const components = json<Record<string, unknown>[]>(row["components_json"], []).map((component) => {
+    const raw = component["raw"];
+    if (!isRecord(raw)) return component;
+    const rawPeriod = isRecord(raw["period"]) ? raw["period"] : {};
+    return {
+      ...component,
+      raw: {
+        ...raw,
+        claim_id: claimIdFor(
+          "numeric",
+          str(raw["geometry_hash"]),
+          str(raw["indicator"]),
+          str(rawPeriod["start"]),
+          str(rawPeriod["end"]),
+          algorithmVersion,
+          formatValue(num(raw["value"])),
+        ),
+      },
+    };
+  });
   const { band, interpretation } = interpretSubstrateBand(score);
 
   const claimId = claimIdFor(

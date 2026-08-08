@@ -22,6 +22,9 @@ const REQUIRED_ALONGSIDE_VALUE = [
   "validation_status",
   "confidence",
   "method",
+  // Without an id the number cannot be handed to get_provenance, which makes it a figure
+  // the reader has to take on trust. That is the thing this layer exists not to do.
+  "claim_id",
 ] as const;
 
 /**
