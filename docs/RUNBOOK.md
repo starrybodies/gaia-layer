@@ -40,12 +40,33 @@ make seed
 
 This ingests the pilot area of interest — the Southern Gulf Islands and the adjacent
 Coastal Douglas-fir zone — for the last twelve complete months: Sentinel-2 spectral
-indices, ERA5-Land climate and soil moisture, and Copernicus DEM terrain. It reads only the
-windows of each satellite scene that intersect the area, so it moves tens of megabytes
-rather than tens of gigabytes.
+indices, ERA5-Land climate and soil moisture, Copernicus DEM terrain, and a substrate
+score per month. It reads only the windows of each satellite scene that intersect the
+area, so it moves tens of megabytes rather than tens of gigabytes.
 
-Expect 10–20 minutes on a good connection. It is resumable: re-running skips periods
-already present, so an interrupted seed can be restarted with the same command.
+**Expect 45 to 60 minutes.** Measured on an M-series Mac mini: roughly three minutes per
+month for Sentinel-2, which is the bulk of it, plus two or three minutes for everything
+else. Most of that is not network — the windowed reads take about 1.5 seconds each — it is
+compositing and compressing ten-megapixel float grids.
+
+Two ways to cut it down:
+
+```bash
+# Half the scenes per tile per month. Faster, and a median of two is less robust to
+# residual cloud than a median of three.
+uv run --directory pipeline gaia ingest sentinel2 --max-scenes 2
+
+# Fewer months.
+GAIA_HISTORY_MONTHS=4 make seed
+```
+
+The seed is resumable: re-running skips periods already present, so an interrupted run can
+be restarted with the same command.
+
+**While a seed is running, the API cannot read the lake.** DuckDB permits one writer, and
+the pipeline holds that lock for the length of the ingest. The API reports this as a
+retryable `lake_unavailable` rather than pretending otherwise. Wait for the seed to finish
+before running `make dev`.
 
 Check what landed:
 

@@ -37,6 +37,7 @@ from .envelope import (
     TrendEnvelope,
     ValidationFlag,
     ValidationReport,
+    claim_id_for,
     new_claim_id,
 )
 from .provenance import Method, ProvenanceChain, ProvenanceStep, StepKind
@@ -109,6 +110,7 @@ __all__ = [
     "ValidationFlag",
     "ValidationReport",
     "ValidationStatus",
+    "claim_id_for",
     "indicator_family",
     "new_claim_id",
 ]
