@@ -1,23 +1,30 @@
 /**
  * The playground's server route.
  *
- * Runs a tool-use loop against Claude with the layer's five tools bound to the REST API.
- * The model orchestrates, queries and explains. It never computes an ecological value, and
- * the system prompt says so in terms it cannot reasonably read past — because the whole
- * demonstration is worthless if the visitor cannot tell whether a figure was measured or
- * generated.
+ * Runs a tool-use loop against Groq's OpenAI-compatible API with the layer's five tools
+ * bound to the REST API. Groq's free tier keeps the demo running without per-call cost,
+ * which matters for a page anyone can hit.
  *
- * The transcript returned includes every tool call and its raw result, so a visitor can
- * check the model's prose against what the layer actually said.
+ * The model orchestrates, queries and explains. It never computes an ecological value, and
+ * the system prompt says so in terms it cannot reasonably read past — the whole
+ * demonstration is worthless if a visitor cannot tell whether a figure was measured or
+ * generated. The full transcript of tool calls and raw results is returned so the prose can
+ * be checked against what the layer actually said.
+ *
+ * Swapping providers touches only this file. The tools are the layer's REST endpoints, and
+ * they do not care who is calling them.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
-import { API_BASE } from "@/lib/api";
+import OpenAI from "openai";
+import { absoluteApiBase } from "@/lib/api";
+import { compactForModel } from "./compact";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MODEL = "claude-sonnet-5";
+const API_BASE = absoluteApiBase();
+const BASE_URL = process.env["GROQ_BASE_URL"] ?? "https://api.groq.com/openai/v1";
+const MODEL = process.env["GROQ_MODEL"] ?? "openai/gpt-oss-120b";
 
 const SYSTEM = `You are connected to the Gaia ecological intelligence layer, which serves
 validated, provenance-tracked ecological ground truth for wildfire substrate condition.
@@ -41,110 +48,148 @@ Hard rules, in order of importance:
    weather. State the caveats the layer returns with it when the reader is making a
    decision on it.
 
-Start by calling list_coverage if you do not know what is available. Prefer
+Call list_coverage first if you do not know what is available — it tells you the ingested
+area's bounding box, which you then pass as the geometry to other tools. Prefer
 get_ecological_state for condition questions, compare_periods for change questions, and
 get_provenance when the reader asks where a number came from.
 
 Be concise and technical. The reader is an underwriter, a land manager or an analyst.`;
 
 interface ToolSpec {
-  name: string;
-  description: string;
-  input_schema: Anthropic.Tool.InputSchema;
+  // The function variant specifically. `ChatCompletionTool` is a union that also
+  // covers custom tools, which have no `function` member.
+  definition: OpenAI.Chat.Completions.ChatCompletionFunctionTool;
   call: (input: Record<string, unknown>) => Promise<Response>;
 }
 
-const geometrySchema = {
+const GEOMETRY_PROPERTY = {
   type: "object",
   description:
-    "GeoJSON Polygon/MultiPolygon, or a bounding box with west/south/east/north. Must " +
-    "match an ingested area — use list_coverage to find one.",
+    "Area to describe. A GeoJSON Polygon/MultiPolygon in WGS84, or a bounding box object " +
+    "with west/south/east/north. Must match an ingested area — list_coverage returns one.",
+  properties: {
+    west: { type: "number" },
+    south: { type: "number" },
+    east: { type: "number" },
+    north: { type: "number" },
+  },
 } as const;
 
-const dateRangeSchema = {
+const DATE_RANGE_PROPERTY = {
   type: "object",
-  properties: { start: { type: "string" }, end: { type: "string" } },
+  properties: {
+    start: { type: "string", description: "YYYY-MM-DD" },
+    end: { type: "string", description: "YYYY-MM-DD" },
+  },
   required: ["start", "end"],
 } as const;
 
+function jsonPost(path: string) {
+  return (input: Record<string, unknown>): Promise<Response> =>
+    fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+      cache: "no-store",
+    });
+}
+
 const TOOLS: ToolSpec[] = [
   {
-    name: "list_coverage",
-    description:
-      "What the layer can answer for: ingested areas, their indicators, date ranges, and " +
-      "data quality (mean confidence, validated/flagged/rejected counts).",
-    input_schema: { type: "object", properties: {} },
+    definition: {
+      type: "function",
+      function: {
+        name: "list_coverage",
+        description:
+          "What the layer can answer for: ingested areas with their bounding boxes, the " +
+          "indicators available for each, date ranges, and data quality — mean confidence " +
+          "and counts of validated, flagged and rejected values. Call this first.",
+        parameters: { type: "object", properties: {} },
+      },
+    },
     call: () => fetch(`${API_BASE}/v1/coverage`, { cache: "no-store" }),
   },
   {
-    name: "get_ecological_state",
-    description:
-      "Validated ecological state for an area over a date range: vegetation greenness and " +
-      "moisture, burn ratio, climate, soil moisture, terrain, and the trend in each. Every " +
-      "value carries confidence, validation status, provenance and a method citation.",
-    input_schema: {
-      type: "object",
-      properties: { geometry: geometrySchema, date_range: dateRangeSchema },
-      required: ["geometry", "date_range"],
-    },
-    call: (input) =>
-      fetch(`${API_BASE}/v1/ecological-state`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(input),
-      }),
-  },
-  {
-    name: "get_wildfire_substrate_score",
-    description:
-      "Composite wildfire substrate condition, 0-100, with its full decomposition into " +
-      "contributing indicators, weights and points. Condition of the ground, not ignition " +
-      "probability.",
-    input_schema: {
-      type: "object",
-      properties: { geometry: geometrySchema, date: { type: "string" } },
-      required: ["geometry", "date"],
-    },
-    call: (input) =>
-      fetch(`${API_BASE}/v1/wildfire-substrate-score`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(input),
-      }),
-  },
-  {
-    name: "compare_periods",
-    description:
-      "Change between two periods, with statistical significance. A difference that is not " +
-      "significant is reported as not significant rather than as change.",
-    input_schema: {
-      type: "object",
-      properties: {
-        geometry: geometrySchema,
-        period_a: dateRangeSchema,
-        period_b: dateRangeSchema,
+    definition: {
+      type: "function",
+      function: {
+        name: "get_ecological_state",
+        description:
+          "Validated ecological state for an area over a date range: vegetation greenness " +
+          "and moisture, burn ratio, climate, soil moisture, terrain, and the trend in " +
+          "each. Every value carries confidence, validation status, a provenance chain and " +
+          "a method citation.",
+        parameters: {
+          type: "object",
+          properties: { geometry: GEOMETRY_PROPERTY, date_range: DATE_RANGE_PROPERTY },
+          required: ["geometry", "date_range"],
+        },
       },
-      required: ["geometry", "period_a", "period_b"],
     },
-    call: (input) =>
-      fetch(`${API_BASE}/v1/compare-periods`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(input),
-      }),
+    call: jsonPost("/v1/ecological-state"),
   },
   {
-    name: "get_provenance",
-    description:
-      "Trace a previously returned number back to the satellite scenes, reanalysis cells " +
-      "or elevation tiles behind it. Takes a claim_id.",
-    input_schema: {
-      type: "object",
-      properties: { claim_id: { type: "string" } },
-      required: ["claim_id"],
+    definition: {
+      type: "function",
+      function: {
+        name: "get_wildfire_substrate_score",
+        description:
+          "Composite wildfire substrate condition, 0-100, with its full decomposition into " +
+          "contributing indicators, weights and points. Condition of the ground, not " +
+          "ignition probability.",
+        parameters: {
+          type: "object",
+          properties: {
+            geometry: GEOMETRY_PROPERTY,
+            date: { type: "string", description: "YYYY-MM-DD" },
+          },
+          required: ["geometry", "date"],
+        },
+      },
+    },
+    call: jsonPost("/v1/wildfire-substrate-score"),
+  },
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "compare_periods",
+        description:
+          "Change between two periods, with statistical significance tested on the monthly " +
+          "series. A difference that is not significant is reported as not significant " +
+          "rather than as change.",
+        parameters: {
+          type: "object",
+          properties: {
+            geometry: GEOMETRY_PROPERTY,
+            period_a: DATE_RANGE_PROPERTY,
+            period_b: DATE_RANGE_PROPERTY,
+          },
+          required: ["geometry", "period_a", "period_b"],
+        },
+      },
+    },
+    call: jsonPost("/v1/compare-periods"),
+  },
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "get_provenance",
+        description:
+          "Trace a previously returned number back to the satellite scenes, reanalysis " +
+          "cells or elevation tiles behind it. Takes a claim_id from any served value.",
+        parameters: {
+          type: "object",
+          properties: { claim_id: { type: "string" } },
+          required: ["claim_id"],
+        },
+      },
     },
     call: (input) =>
-      fetch(`${API_BASE}/v1/provenance/${String(input["claim_id"])}`, { cache: "no-store" }),
+      fetch(`${API_BASE}/v1/provenance/${encodeURIComponent(String(input["claim_id"]))}`, {
+        cache: "no-store",
+      }),
   },
 ];
 
@@ -156,14 +201,14 @@ export interface TranscriptEntry {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const apiKey = process.env["ANTHROPIC_API_KEY"];
+  const apiKey = process.env["GROQ_API_KEY"];
   if (apiKey === undefined || apiKey === "") {
     return Response.json(
       {
         error: "no_api_key",
         message:
-          "ANTHROPIC_API_KEY is not set, so the playground cannot reach a model. The map " +
-          "and the report do not need it — they read the layer directly.",
+          "GROQ_API_KEY is not set, so the playground cannot reach a model. The map and " +
+          "the report do not need it — they read the layer directly.",
       },
       { status: 503 },
     );
@@ -175,76 +220,108 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "empty_question", message: "Ask something." }, { status: 400 });
   }
 
-  const client = new Anthropic({ apiKey });
-  const messages: Anthropic.MessageParam[] = [{ role: "user", content: question }];
+  const client = new OpenAI({ apiKey, baseURL: BASE_URL });
+
+  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    { role: "system", content: SYSTEM },
+    { role: "user", content: question },
+  ];
   const transcript: TranscriptEntry[] = [];
 
-  // Bounded so a confused loop cannot run up a bill on a public demo page.
-  for (let turn = 0; turn < 8; turn += 1) {
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 2048,
-      system: SYSTEM,
-      tools: TOOLS.map((t) => ({
-        name: t.name,
-        description: t.description,
-        input_schema: t.input_schema,
-      })),
-      messages,
-    });
+  try {
+    // Bounded so a confused loop cannot spin on a page anyone can hit.
+    for (let turn = 0; turn < 8; turn += 1) {
+      const completion = await client.chat.completions.create({
+        model: MODEL,
+        messages,
+        tools: TOOLS.map((t) => t.definition),
+        max_tokens: 2048,
+        temperature: 0.2,
+      });
 
-    messages.push({ role: "assistant", content: response.content });
+      const choice = completion.choices[0];
+      if (choice === undefined) break;
+      const message = choice.message;
+      messages.push(message);
 
-    const toolUses = response.content.filter(
-      (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
+      // Groq omits `content` entirely on a tool-call turn where the OpenAI API sends
+      // null, so this checks the type rather than comparing against null.
+      if (typeof message.content === "string" && message.content.trim() !== "") {
+        transcript.push({ type: "text", content: message.content });
+      }
+
+      const calls = message.tool_calls ?? [];
+      if (calls.length === 0) break;
+
+      for (const call of calls) {
+        if (call.type !== "function") continue;
+        const spec = TOOLS.find((t) => t.definition.function.name === call.function.name);
+
+        let parsed: Record<string, unknown> = {};
+        try {
+          parsed = JSON.parse(call.function.arguments || "{}") as Record<string, unknown>;
+        } catch {
+          // A model that emits malformed arguments should be told so and allowed to retry,
+          // rather than having the whole turn fail.
+          transcript.push({
+            type: "tool_call",
+            name: call.function.name,
+            content: call.function.arguments,
+          });
+          messages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: "Arguments were not valid JSON. Send the arguments again as JSON.",
+          });
+          continue;
+        }
+
+        transcript.push({ type: "tool_call", name: call.function.name, content: parsed });
+
+        if (spec === undefined) {
+          messages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: `No such tool: ${call.function.name}`,
+          });
+          continue;
+        }
+
+        try {
+          const response = await spec.call(parsed);
+          const payload: unknown = await response.json();
+
+          // The visitor sees the raw response; the model sees a summary of it. Full
+          // provenance chains run to tens of thousands of tokens, which no context window
+          // should be spending on an enumeration the model can fetch on demand.
+          transcript.push({ type: "tool_result", name: call.function.name, content: payload });
+          messages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: JSON.stringify(compactForModel(call.function.name, payload)),
+          });
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          transcript.push({
+            type: "tool_result",
+            name: call.function.name,
+            content: { error: detail },
+          });
+          messages.push({ role: "tool", tool_call_id: call.id, content: `Tool failed: ${detail}` });
+        }
+      }
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return Response.json(
+      {
+        error: "model_unavailable",
+        message: "The model could not be reached.",
+        detail,
+        transcript,
+      },
+      { status: 502 },
     );
-
-    for (const block of response.content) {
-      if (block.type === "text" && block.text.trim() !== "") {
-        transcript.push({ type: "text", content: block.text });
-      }
-    }
-
-    if (toolUses.length === 0) break;
-
-    const results: Anthropic.ToolResultBlockParam[] = [];
-    for (const use of toolUses) {
-      const spec = TOOLS.find((t) => t.name === use.name);
-      transcript.push({ type: "tool_call", name: use.name, input: use.input, content: use.input });
-
-      if (spec === undefined) {
-        results.push({
-          type: "tool_result",
-          tool_use_id: use.id,
-          content: `No such tool: ${use.name}`,
-          is_error: true,
-        });
-        continue;
-      }
-
-      try {
-        const apiResponse = await spec.call(use.input as Record<string, unknown>);
-        const payload: unknown = await apiResponse.json();
-        transcript.push({ type: "tool_result", name: use.name, content: payload });
-        results.push({
-          type: "tool_result",
-          tool_use_id: use.id,
-          content: JSON.stringify(payload),
-          is_error: !apiResponse.ok,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        transcript.push({ type: "tool_result", name: use.name, content: { error: message } });
-        results.push({
-          type: "tool_result",
-          tool_use_id: use.id,
-          content: message,
-          is_error: true,
-        });
-      }
-    }
-
-    messages.push({ role: "user", content: results });
   }
 
   const answer = transcript
@@ -252,5 +329,5 @@ export async function POST(request: Request): Promise<Response> {
     .map((e) => String(e.content))
     .join("\n\n");
 
-  return Response.json({ answer, transcript });
+  return Response.json({ answer, transcript, model: MODEL });
 }

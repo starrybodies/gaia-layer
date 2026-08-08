@@ -1,0 +1,23 @@
+# Vercel replaces .gitignore with this file, so the data lake has to be re-included by
+# saying nothing about it here — the deployment carries gaia.duckdb inside the function.
+
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+
+# The COG rasters are 900 MB and nothing served reads them. They are pipeline inputs and
+# outputs; the API answers entirely from DuckDB.
+data/lake
+data/manifests
+data/claims.duckdb
+
+pipeline/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.hypothesis
+.git

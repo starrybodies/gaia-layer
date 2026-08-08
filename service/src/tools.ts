@@ -27,6 +27,7 @@ import {
 } from "./errors.js";
 import { geometryHash, type GeometryInput } from "./geometry.js";
 import {
+  claimForNumeric,
   claimRecordFor,
   decodeIndicatorRow,
   formatValue,
@@ -381,10 +382,108 @@ export async function getWildfireSubstrateScore(
 
 // ---------------------------------------------------------------------- 3. provenance
 
+/**
+ * Rebuild a claim from the lake when the ledger has no record of it.
+ *
+ * Claim ids are derived from claim content, so a served value can always be re-identified
+ * by recomputing ids over the stored measurements and looking for a match. The lake holds
+ * a few hundred rows, so the scan is cheap.
+ *
+ * This is what lets `get_provenance` work with no writable storage at all — on a read-only
+ * deployment, or after a ledger is lost. The ledger becomes an index rather than the system
+ * of record, which is the right relationship: the measurements are the system of record.
+ *
+ * Trends are not reconstructible this way, because a trend claim is keyed by the arbitrary
+ * date range the caller asked for. Those resolve only from the ledger.
+ */
+async function reconstructClaim(claimId: string): Promise<unknown | undefined> {
+  const rows = await query(
+    `SELECT ${INDICATOR_COLUMNS} FROM lake.indicator_value WHERE value IS NOT NULL`,
+  );
+
+  for (const raw of rows) {
+    const decoded = decodeIndicatorRow(raw);
+    if (claimForNumeric(decoded) !== claimId) continue;
+
+    const envelope = toNumericEnvelope(decoded);
+    const sources = await sourcesFor(decoded.observationIds, envelope.provenance);
+    return {
+      claim_id: claimId,
+      claim_kind: "numeric",
+      indicator: decoded.indicator,
+      value_repr: `${formatValue(envelope.value)} ${envelope.unit}`,
+      unit: envelope.unit,
+      confidence: envelope.confidence,
+      validation: {
+        status: decoded.status,
+        flags: decoded.flags,
+        constraints_checked: decoded.constraintsChecked,
+        confidence: decoded.confidence,
+        confidence_basis: decoded.confidenceBasis,
+      },
+      method: envelope.method,
+      provenance: envelope.provenance,
+      sources,
+      served_at: decoded.computedAt,
+      reconstructed_from_lake: true,
+      generated_at: new Date().toISOString(),
+    };
+  }
+  return undefined;
+}
+
+/** Resolve source observations, falling back to the chain's own observation steps. */
+async function sourcesFor(
+  observationIds: string[],
+  provenance: { kind: string; source?: string | null; dataset_id?: string | null; asset_ids: string[]; acquired_at?: string | null; access_route?: string | null; spatial_ref: string }[],
+): Promise<unknown[]> {
+  if (observationIds.length > 0) {
+    const rows = await query(
+      `SELECT source, dataset_id, asset_id, acquired_at, access_route, url, spatial_ref
+       FROM lake.observation WHERE observation_id IN (${observationIds.map((_, i) => `$${i + 1}`).join(", ")})
+       ORDER BY acquired_at`,
+      observationIds,
+    );
+    if (rows.length > 0) {
+      return rows.map((s) => ({
+        source: str(s["source"]),
+        dataset_id: str(s["dataset_id"]),
+        asset_id: str(s["asset_id"]),
+        acquired_at: s["acquired_at"] === null ? null : isoTimestamp(s["acquired_at"]),
+        access_route: s["access_route"] === null ? null : str(s["access_route"]),
+        url: s["url"] === null ? null : str(s["url"]),
+        spatial_ref: str(s["spatial_ref"]),
+      }));
+    }
+  }
+  return provenance
+    .filter((s) => s.kind === "observation")
+    .map((s) => ({
+      source: s.source ?? "unknown",
+      dataset_id: s.dataset_id ?? "unknown",
+      asset_id: s.asset_ids[0] ?? "unknown",
+      acquired_at: s.acquired_at ?? null,
+      access_route: s.access_route ?? null,
+      url: s.asset_ids[0] ?? null,
+      spatial_ref: s.spatial_ref,
+    }));
+}
+
 export async function getProvenance(claimId: string): Promise<unknown> {
-  const rows = await queryClaims("SELECT * FROM claim WHERE claim_id = $1", [claimId]);
-  const row = rows[0];
-  if (row === undefined) throw new ClaimNotFoundError(claimId);
+  let row: Record<string, unknown> | undefined;
+  try {
+    row = (await queryClaims("SELECT * FROM claim WHERE claim_id = $1", [claimId]))[0];
+  } catch {
+    // The ledger is optional. On a read-only filesystem it cannot be opened at all, and
+    // that must not make provenance unavailable.
+    row = undefined;
+  }
+
+  if (row === undefined) {
+    const reconstructed = await reconstructClaim(claimId);
+    if (reconstructed !== undefined) return reconstructed;
+    throw new ClaimNotFoundError(claimId);
+  }
 
   const sourceIds = json<string[]>(row["source_ids"], []);
   const sources =

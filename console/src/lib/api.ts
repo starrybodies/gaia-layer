@@ -6,7 +6,28 @@
  * agent would receive, envelopes and all.
  */
 
-export const API_BASE = process.env["NEXT_PUBLIC_API_BASE"] ?? "http://127.0.0.1:8811";
+/**
+ * Where the console reaches the layer.
+ *
+ * Defaults to `/api` — same origin — because the deployed console mounts the REST API
+ * itself. Point it at a host to talk to a standalone API instead.
+ */
+export const API_BASE = process.env["NEXT_PUBLIC_API_BASE"] ?? "/api";
+
+/**
+ * Absolute form of {@link API_BASE}, for server-side fetches.
+ *
+ * A relative URL is fine in a browser and meaningless in a server component, so this
+ * resolves one against the deployment's own origin.
+ */
+export function absoluteApiBase(): string {
+  if (API_BASE.startsWith("http")) return API_BASE;
+  const explicit = process.env["NEXT_PUBLIC_SITE_URL"];
+  if (explicit !== undefined && explicit !== "") return `${explicit}${API_BASE}`;
+  const vercel = process.env["VERCEL_URL"];
+  if (vercel !== undefined && vercel !== "") return `https://${vercel}${API_BASE}`;
+  return `http://127.0.0.1:${process.env["CONSOLE_PORT"] ?? 3311}${API_BASE}`;
+}
 
 export interface ProvenanceStep {
   index: number;
@@ -196,7 +217,9 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  // Server components need an absolute URL; the browser is happy with either.
+  const base = typeof window === "undefined" ? absoluteApiBase() : API_BASE;
+  const response = await fetch(`${base}${path}`, {
     ...init,
     headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
     cache: "no-store",

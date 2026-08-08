@@ -7,10 +7,10 @@
  * that lives in its own file so the two writers never contend.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
+import { CLAIMS_DDL } from "./claims-schema.js";
 import { LakeUnavailableError } from "./errors.js";
 
 let instance: DuckDBInstance | undefined;
@@ -20,24 +20,38 @@ function dataDir(): string {
   return resolve(process.env["GAIA_DATA_DIR"] ?? resolve(process.cwd(), "..", "data"));
 }
 
-/** The measurement lake, written by the pipeline and read here. */
+/**
+ * The measurement lake, written by the pipeline and read here.
+ *
+ * Candidates are tried in order because the working directory differs across the ways this
+ * runs: a standalone API from `api/`, a Next server from `console/`, and a serverless
+ * function whose root is neither. `GAIA_DUCKDB_PATH` short-circuits all of it.
+ */
 export function lakePath(): string {
   const explicit = process.env["GAIA_DUCKDB_PATH"];
   if (explicit !== undefined && explicit !== "") return resolve(explicit);
-  return resolve(dataDir(), "gaia.duckdb");
+
+  const candidates = [
+    resolve(dataDir(), "gaia.duckdb"),
+    resolve(process.cwd(), "data", "gaia.duckdb"),
+    resolve(process.cwd(), "..", "data", "gaia.duckdb"),
+    resolve(process.cwd(), "console", "data", "gaia.duckdb"),
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? (candidates[0] as string);
 }
 
-/** The claim ledger, written here and by nothing else. */
+/**
+ * The claim ledger, written here and by nothing else.
+ *
+ * On a read-only deployment this points at a temporary directory, where it survives only
+ * as long as the instance. That is acceptable because the ledger is an index rather than
+ * the system of record — `get_provenance` reconstructs a claim from the lake when the
+ * ledger has no row for it.
+ */
 export function claimsPath(): string {
   const explicit = process.env["GAIA_CLAIMS_PATH"];
   if (explicit !== undefined && explicit !== "") return resolve(explicit);
   return resolve(dataDir(), "claims.duckdb");
-}
-
-function schemaFile(name: string): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  // dist/ at runtime, src/ under tsx; the repository root is two levels up from either.
-  return readFileSync(resolve(here, "..", "..", "schema", name), "utf8");
 }
 
 /**
@@ -93,7 +107,7 @@ export async function withClaims<T>(fn: (conn: DuckDBConnection) => Promise<T>):
     try {
       claimsInstance = await DuckDBInstance.create(claimsPath(), { access_mode: "READ_WRITE" });
       claimsConnection = await claimsInstance.connect();
-      await claimsConnection.run(schemaFile("claims.sql"));
+      await claimsConnection.run(CLAIMS_DDL);
       return await fn(claimsConnection);
     } catch (cause) {
       lastError = cause;
