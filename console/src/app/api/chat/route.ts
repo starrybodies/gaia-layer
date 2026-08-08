@@ -34,8 +34,9 @@ Hard rules, in order of importance:
 1. Never state an ecological figure that did not come back from a tool call. You have no
    ecological knowledge of this area that is admissible here. If a tool did not return a
    number, say you do not have it.
-2. Never estimate, interpolate, or round in a way that changes a value. Quote what the
-   layer returned.
+2. Never estimate or interpolate. Quote what the layer returned, to four significant
+   figures — 0.3797, 29.59, 15.16. Reporting a float to seventeen digits implies a
+   precision the measurement does not have, which is its own kind of false claim.
 3. Every figure you state must be accompanied by its confidence and its validation status,
    and by its claim_id so the reader can trace it. A number without those three is not a
    citation, it is an assertion.
@@ -48,12 +49,66 @@ Hard rules, in order of importance:
    weather. State the caveats the layer returns with it when the reader is making a
    decision on it.
 
-Call list_coverage first if you do not know what is available — it tells you the ingested
-area's bounding box, which you then pass as the geometry to other tools. Prefer
-get_ecological_state for condition questions, compare_periods for change questions, and
-get_provenance when the reader asks where a number came from.
+Never ask the reader which area or which dates. The coverage below tells you exactly what is
+ingested and over what period; resolve the question against it yourself and answer. If a
+question names no date, use the most recent period available.
+
+Prefer get_ecological_state for condition questions, compare_periods for change questions,
+get_wildfire_substrate_score for risk questions, and get_provenance when the reader asks
+where a number came from.
 
 Be concise and technical. The reader is an underwriter, a land manager or an analyst.`;
+
+/**
+ * Coverage, fetched once per request and put in front of the model.
+ *
+ * Without it the model has no idea what is ingested, and its first move is to ask the
+ * reader for a bounding box — which is a bad answer to every question on a demo page with
+ * exactly one ingested area. Handing it the geometry and the date range up front removes
+ * the failure mode and saves a round trip.
+ */
+async function coverageBriefing(): Promise<string | null> {
+  try {
+    const response = await fetch(`${API_BASE}/v1/coverage`, { cache: "no-store" });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as {
+      aois?: {
+        aoi_id?: string;
+        name?: string;
+        bbox?: Record<string, number>;
+        area_km2?: number;
+        indicators?: { indicator?: string; first_period_start?: string; last_period_end?: string }[];
+      }[];
+    };
+    const aoi = payload.aois?.[0];
+    if (aoi === undefined) return null;
+
+    const monthly = (aoi.indicators ?? []).filter(
+      (i) => (i.last_period_end ?? "") < "2099-01-01",
+    );
+    const from = monthly.reduce(
+      (a, i) => (a === "" || (i.first_period_start ?? "") < a ? (i.first_period_start ?? "") : a),
+      "",
+    );
+    const to = monthly.reduce(
+      (a, i) => ((i.last_period_end ?? "") > a ? (i.last_period_end ?? "") : a),
+      "",
+    );
+
+    return [
+      "Currently ingested — use this as the geometry for every tool call:",
+      "",
+      `Area: ${aoi.name} (aoi_id ${aoi.aoi_id}), ${Math.round(aoi.area_km2 ?? 0)} km2.`,
+      `Geometry to pass: ${JSON.stringify(aoi.bbox)}`,
+      `Monthly indicators cover ${from} to ${to}.`,
+      `Available indicators: ${(aoi.indicators ?? []).map((i) => i.indicator).join(", ")}.`,
+      "",
+      "Terrain indicators are static and carry a sentinel period; do not quote their dates.",
+    ].join("\n");
+  } catch {
+    return null;
+  }
+}
 
 interface ToolSpec {
   // The function variant specifically. `ChatCompletionTool` is a union that also
@@ -222,8 +277,12 @@ export async function POST(request: Request): Promise<Response> {
 
   const client = new OpenAI({ apiKey, baseURL: BASE_URL });
 
+  const briefing = await coverageBriefing();
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM },
+    ...(briefing === null
+      ? []
+      : [{ role: "system" as const, content: briefing }]),
     { role: "user", content: question },
   ];
   const transcript: TranscriptEntry[] = [];

@@ -11,16 +11,16 @@
     "test": "echo \"no console tests yet\""
   },
   "dependencies": {
+    "@duckdb/node-api": "1.5.5-r.3",
+    "@gaia/api": "workspace:*",
     "@gaia/core": "workspace:*",
-    "maplibre-gl": "^6.2.0",
+    "@gaia/service": "workspace:*",
+    "hono": "^4.13.1",
+    "maplibre-gl": "^5.24.0",
     "next": "^15.5.4",
     "openai": "^7.4.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "@gaia/api": "workspace:*",
-    "@gaia/service": "workspace:*",
-    "hono": "^4.13.1",
-    "@duckdb/node-api": "1.5.5-r.3"
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.13",

@@ -1,55 +1,183 @@
 @import "tailwindcss";
 
 /*
- * Design language: institutional, technical, restrained. Bloomberg terminal meets field
- * notebook. Dark neutral base, one accent, dense data displayed cleanly. No eco-kitsch —
- * this is an instrument panel for people underwriting land, not a nature brochure.
+ * Gaia AI house style.
+ *
+ * Palette sampled from gaiaai.xyz rather than approximated: a near-black that is shifted
+ * green rather than blue, pale green-white text, and one signal green that does all the
+ * work. Display type is monospace, uppercase, widely tracked — that is the signature, and
+ * it is why this reads as an instrument rather than a brochure.
+ *
+ * The discipline underneath: colour carries meaning, never decoration. Green means live,
+ * measured, validated. Amber means flagged. Red means rejected. Nothing is coloured to
+ * look nice.
  */
 
 @theme {
-  /* Neutral base — warm-shifted greys so the dark surface reads as paper, not plastic. */
-  --color-base-950: #0b0c0b;
-  --color-base-900: #121412;
-  --color-base-850: #171a17;
-  --color-base-800: #1d211d;
-  --color-base-700: #2a2f2a;
-  --color-base-600: #3d443d;
-  --color-base-500: #5a625a;
-  --color-base-400: #838b83;
-  --color-base-300: #a8b0a8;
-  --color-base-200: #ccd2cc;
-  --color-base-100: #e8ebe8;
+  /* Ground */
+  --color-void: #030806;
+  --color-surface: #071210;
+  --color-raised: #0c1a16;
+  --color-line: #1a332a;
+  --color-line-bright: #26493c;
 
-  /* The single accent. Used for interactive affordance and nothing decorative. */
-  --color-accent-500: #d4703a;
-  --color-accent-400: #e08951;
-  --color-accent-600: #b25a2b;
+  /* Type */
+  --color-text: #c8e6c9;
+  --color-dim: #8fb39a;
+  --color-muted: #5e8a72;
+  --color-faint: #3c5a4a;
 
-  /* Status. Applied only to validation state and score bands, never to chrome. */
-  --color-status-validated: #6f9e6f;
-  --color-status-flagged: #c9a227;
-  --color-status-rejected: #b4574c;
+  /* Signal */
+  --color-signal: #00e87b;
+  --color-signal-dim: #00b862;
+  --color-cyan: #00c8e0;
+  --color-amber: #f0a830;
+  --color-rust: #e0623c;
 
-  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono:
+    var(--font-jetbrains), ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 }
 
 :root {
   color-scheme: dark;
 }
 
-html,
-body {
-  background: var(--color-base-950);
-  color: var(--color-base-200);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
+html {
+  scroll-behavior: smooth;
 }
 
-/* Numbers are the point. They get the monospace treatment and tabular figures so columns
-   of them line up and can be compared down the page. */
+body {
+  background: var(--color-void);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Numbers are the product. Tabular figures so columns of them line up down the page. */
 .numeric {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
+}
+
+/* The display treatment: monospace, uppercase, tracked wide. */
+.display {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  line-height: 1.02;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 0.625rem;
+}
+
+/* A single hairline that reads as a horizon rather than a border. */
+.rule {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--color-line-bright) 12%,
+    var(--color-line-bright) 88%,
+    transparent
+  );
+}
+
+/* Green atmosphere behind the hero. Not a gradient for its own sake — it puts the light
+   source above the fold so the type below reads as lit from somewhere. */
+.atmosphere {
+  background:
+    radial-gradient(70rem 40rem at 50% -12rem, rgba(0, 232, 123, 0.14), transparent 62%),
+    radial-gradient(48rem 30rem at 88% 6rem, rgba(0, 200, 224, 0.07), transparent 60%);
+}
+
+.grid-field {
+  background-image:
+    linear-gradient(to right, rgba(26, 51, 42, 0.55) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(26, 51, 42, 0.55) 1px, transparent 1px);
+  background-size: 3.5rem 3.5rem;
+  mask-image: radial-gradient(60rem 34rem at 50% 0%, black, transparent 76%);
+}
+
+.glow-signal {
+  text-shadow: 0 0 28px rgba(0, 232, 123, 0.42);
+}
+
+/* Live indicator. Slow, because a fast blink reads as an alarm and this is a heartbeat. */
+@keyframes pulse-signal {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(0, 232, 123, 0.5);
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 0 5px rgba(0, 232, 123, 0);
+  }
+}
+
+.pulse {
+  animation: pulse-signal 2.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse {
+    animation: none;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+::selection {
+  background: rgba(0, 232, 123, 0.26);
+  color: #eafff3;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-bright) transparent;
+}
+
+/* MapLibre chrome, brought into the palette. Its defaults are white-on-white and read as
+   somebody else's product sitting inside ours. */
+.maplibregl-ctrl-group {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-line) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--color-line) !important;
+}
+
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(78%) sepia(18%) saturate(420%) hue-rotate(76deg) brightness(94%);
+}
+
+.maplibregl-ctrl-scale {
+  background: rgba(7, 18, 16, 0.85) !important;
+  border-color: var(--color-line-bright) !important;
+  color: var(--color-dim) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 10px !important;
+  border-radius: 0 !important;
+}
+
+.maplibregl-ctrl-attrib {
+  background: rgba(3, 8, 6, 0.8) !important;
+  color: var(--color-faint) !important;
+  font-size: 10px !important;
+}
+
+.maplibregl-ctrl-attrib a {
+  color: var(--color-muted) !important;
 }
