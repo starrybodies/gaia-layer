@@ -11,7 +11,9 @@
     "test": "echo \"no console tests yet\""
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0",
     "@gaia/core": "workspace:*",
+    "maplibre-gl": "^6.2.0",
     "next": "^15.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"

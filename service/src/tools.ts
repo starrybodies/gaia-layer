@@ -15,7 +15,7 @@ import {
   NoDataForPeriodError,
   ServiceError,
 } from "./errors.js";
-import { areaKm2, boundsOf, geometryHash, type GeometryInput } from "./geometry.js";
+import { geometryHash, type GeometryInput } from "./geometry.js";
 import {
   claimRecordFor,
   decodeIndicatorRow,
