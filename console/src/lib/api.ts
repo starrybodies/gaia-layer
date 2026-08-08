@@ -238,7 +238,65 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+export interface LayerInfo {
+  indicator: string;
+  label: string;
+  kind: "measured" | "derived";
+  note: string;
+  static: boolean;
+  periods: number;
+  cells: number;
+  first_period: string;
+  last_period: string;
+}
+
+export interface ZonalBand {
+  band: string;
+  cells: number;
+  share: number;
+  mean: number;
+  median: number;
+}
+
+export interface Interpretation {
+  aoi_id: string;
+  indicator: string;
+  period: { start: string; end: string };
+  units: string;
+  distribution: {
+    count: number;
+    min: number;
+    p10: number;
+    p25: number;
+    median: number;
+    p75: number;
+    p90: number;
+    max: number;
+    mean: number;
+    std: number;
+  };
+  by_elevation: ZonalBand[];
+  by_aspect: ZonalBand[];
+  by_slope: ZonalBand[];
+  correlations: { against: string; r: number; strength: string; direction: string; n: number }[];
+  extremes: {
+    threshold: number;
+    cells: number;
+    share: number;
+    mean_elevation_m: number | null;
+    dominant_aspect: string | null;
+    mean_slope_deg: number | null;
+  };
+  departure: { mean: number; drier_share: number; strongly_drier_share: number } | null;
+  readings: string[];
+}
+
 export const api = {
+  layers: (aoiId: string) => request<LayerInfo[]>(`/v1/layers/${aoiId}`),
+
+  interpretation: (aoiId: string, indicator: string, periodStart: string) =>
+    request<Interpretation>(`/v1/interpretation/${aoiId}/${indicator}/${periodStart}`),
+
   coverage: () => request<Coverage>("/v1/coverage"),
 
   periods: (aoiId: string) => request<{ start: string; end: string }[]>(`/v1/periods/${aoiId}`),

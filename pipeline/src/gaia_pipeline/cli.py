@@ -189,6 +189,25 @@ def aoi_list() -> None:
 # -------------------------------------------------------------------------- coverage
 
 
+@app.command("cells")
+def cells(
+    aoi_id: str | None = typer.Option(None, "--aoi"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Rebuild every map cell layer from the rasters on disk. No network."""
+    _setup_logging(verbose)
+    from .cells import rebuild
+
+    aoi = _resolve_aoi(aoi_id)
+    written = rebuild(aoi)
+    table = Table(title="Cell layers")
+    table.add_column("layer")
+    table.add_column("cells")
+    for layer, count in sorted(written.items()):
+        table.add_row(layer, f"{count:,}")
+    console.print(table)
+
+
 @app.command("coverage")
 def coverage(aoi_id: str | None = typer.Option(None, "--aoi")) -> None:
     """What the layer can currently answer for."""

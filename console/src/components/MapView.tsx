@@ -11,13 +11,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { api, ApiError, type Coverage, type NumericEnvelope } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  type Coverage,
+  type Interpretation,
+  type LayerInfo,
+  type NumericEnvelope,
+} from "@/lib/api";
+import { InterpretationPanel } from "@/components/Interpretation";
 import {
   Citation,
   ConfidenceBar,
   EmptyState,
   FlagList,
-  INDICATOR_CODES,
   label,
   Panel,
   ProvenanceChain,
@@ -37,6 +44,11 @@ const CELL_LAYER = "gaia-cells-fill";
 const RAMP = ["#e0623c", "#f0a830", "#c8e6c9", "#00e87b", "#00c8e0"] as const;
 
 const DRYING_DIRECTION: Record<string, "up" | "down"> = {
+  substrate_score: "up",
+  slope_deg: "up",
+  ndmi_departure: "down",
+  ndvi_departure: "down",
+  nbr_departure: "down",
   ndvi: "down",
   ndmi: "down",
   nbr: "down",
@@ -87,15 +99,16 @@ export function MapView({ coverage }: { coverage: Coverage }) {
   const map = useRef<MapLibreMap | null>(null);
 
   const aoi = coverage.aois[0];
-  const rasterIndicators = useMemo(
-    () =>
-      (aoi?.indicators ?? []).filter((i) =>
-        ["ndvi", "ndmi", "nbr", "elevation_m", "slope_deg", "twi"].includes(i.indicator),
-      ),
-    [aoi],
-  );
 
-  const [indicator, setIndicator] = useState<string>("ndmi");
+  const [layers, setLayers] = useState<LayerInfo[]>([]);
+  const [indicator, setIndicator] = useState<string>("substrate_score");
+  const [interpretation, setInterpretation] = useState<Interpretation | null>(null);
+  const [interpreting, setInterpreting] = useState(false);
+
+  const activeLayer = useMemo(
+    () => layers.find((l) => l.indicator === indicator) ?? null,
+    [layers, indicator],
+  );
   const [periods, setPeriods] = useState<{ start: string; end: string }[]>([]);
   const [period, setPeriod] = useState<string>("");
   const [parent, setParent] = useState<NumericEnvelope | null>(null);
@@ -137,6 +150,14 @@ export function MapView({ coverage }: { coverage: Coverage }) {
   useEffect(() => {
     if (aoi === undefined) return;
     api
+      .layers(aoi.aoi_id)
+      .then(setLayers)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  }, [aoi]);
+
+  useEffect(() => {
+    if (aoi === undefined) return;
+    api
       .periods(aoi.aoi_id)
       .then((list) => {
         // Terrain carries a sentinel period covering all time; it is not a timeline entry.
@@ -148,14 +169,17 @@ export function MapView({ coverage }: { coverage: Coverage }) {
   }, [aoi]);
 
   // --- layer data ------------------------------------------------------------------
+  /** Terrain is stored under a sentinel period; everything else follows the timeline. */
+  const effectivePeriod = activeLayer?.static === true ? activeLayer.first_period : period;
+
   const draw = useCallback(async () => {
     const instance = map.current;
-    if (instance === null || aoi === undefined || period === "") return;
+    if (instance === null || aoi === undefined || effectivePeriod === "") return;
 
     setLoading(true);
     setError(null);
     try {
-      const collection = await api.cells(aoi.aoi_id, indicator, period);
+      const collection = await api.cells(aoi.aoi_id, indicator, effectivePeriod);
       setParent(collection.parent);
 
       const readings = collection.features
@@ -223,11 +247,32 @@ export function MapView({ coverage }: { coverage: Coverage }) {
     } finally {
       setLoading(false);
     }
-  }, [aoi, indicator, period]);
+  }, [aoi, indicator, effectivePeriod]);
 
   useEffect(() => {
     void draw();
   }, [draw]);
+
+  useEffect(() => {
+    if (aoi === undefined || effectivePeriod === "") return;
+    let cancelled = false;
+    setInterpreting(true);
+    setInterpretation(null);
+    api
+      .interpretation(aoi.aoi_id, indicator, effectivePeriod)
+      .then((result) => {
+        if (!cancelled) setInterpretation(result);
+      })
+      .catch(() => {
+        if (!cancelled) setInterpretation(null);
+      })
+      .finally(() => {
+        if (!cancelled) setInterpreting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [aoi, indicator, effectivePeriod]);
 
   if (aoi === undefined) {
     return (
@@ -246,24 +291,27 @@ export function MapView({ coverage }: { coverage: Coverage }) {
         <div ref={container} className="h-full w-full" />
 
         <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap gap-2 p-3">
-          <div className="pointer-events-auto flex flex-wrap gap-1 border border-line bg-void/92 p-1 backdrop-blur">
-            {rasterIndicators.map((item) => (
+          <div className="border-line bg-void/92 pointer-events-auto flex max-w-[46rem] flex-wrap gap-1 border p-1 backdrop-blur">
+            {layers.map((item) => (
               <button
                 key={item.indicator}
                 type="button"
                 onClick={() => setIndicator(item.indicator)}
-                className={`numeric px-2.5 py-1 text-[11px] tracking-wider uppercase transition-colors ${
+                title={item.note}
+                className={`numeric px-2.5 py-1 text-[10px] tracking-wider uppercase transition-colors ${
                   indicator === item.indicator
                     ? "bg-signal text-void"
-                    : "text-muted hover:text-text"
+                    : item.kind === "derived"
+                      ? "text-cyan hover:text-text"
+                      : "text-muted hover:text-text"
                 }`}
               >
-                {INDICATOR_CODES[item.indicator] ?? item.indicator}
+                {item.label}
               </button>
             ))}
           </div>
 
-          {periods.length > 0 && (
+          {periods.length > 0 && activeLayer?.static !== true && (
             <div className="pointer-events-auto flex items-center gap-2 border border-line bg-void/92 px-2 py-1 backdrop-blur">
               <label className="numeric text-[10px] tracking-wider text-muted uppercase">
                 period
@@ -291,7 +339,7 @@ export function MapView({ coverage }: { coverage: Coverage }) {
 
         {legend !== null && error === null && (
           <div className="border-line bg-void/92 pointer-events-none absolute bottom-10 left-3 border p-3 backdrop-blur">
-            <p className="eyebrow text-muted">{label(indicator)}</p>
+            <p className="eyebrow text-muted">{activeLayer?.label ?? label(indicator)}</p>
             <div className="mt-2 flex">
               {legend.colours.map((colour, i) => (
                 <span
@@ -307,6 +355,9 @@ export function MapView({ coverage }: { coverage: Coverage }) {
               <span>{legend.stops[legend.stops.length - 1]?.toFixed(2)}</span>
             </div>
             <p className="numeric text-faint mt-1 text-[9px]">
+              {/* The ramp is reversed for layers where a high number is the dry end, so
+                  the warm colours always sit on the fire-prone side. The caption has to
+                  follow that, not the raw value order. */}
               {(DRYING_DIRECTION[indicator] ?? "down") === "down"
                 ? "left = drier · right = wetter"
                 : "left = wetter · right = drier"}
@@ -328,6 +379,26 @@ export function MapView({ coverage }: { coverage: Coverage }) {
       </div>
 
       <aside className="overflow-y-auto border-t border-line lg:border-t-0 lg:border-l">
+        <div>
+          {activeLayer !== null && (
+            <section className="border-line border-b p-4">
+              <div className="flex items-baseline justify-between gap-3">
+                <h2 className="text-text text-sm">{activeLayer.label}</h2>
+                <span
+                  className={`numeric text-[9px] tracking-[0.16em] uppercase ${
+                    activeLayer.kind === "derived" ? "text-cyan" : "text-muted"
+                  }`}
+                >
+                  {activeLayer.kind}
+                </span>
+              </div>
+              <p className="text-muted mt-2 text-[11px] leading-relaxed">{activeLayer.note}</p>
+            </section>
+          )}
+
+          <InterpretationPanel data={interpretation} loading={interpreting} />
+        </div>
+
         <div className="space-y-px">
           <Panel title="Area">
             <p className="text-sm text-text">{aoi.name}</p>

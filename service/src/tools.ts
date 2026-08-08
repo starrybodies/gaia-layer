@@ -804,17 +804,17 @@ export async function getCells(
     throw new NoDataForPeriodError(`${indicator} at ${periodStart}`);
   }
 
-  const parentRow = await queryOne(
-    `SELECT ${INDICATOR_COLUMNS} FROM lake.indicator_value WHERE value_id = $1`,
-    [str(rows[0]?.["value_id"])],
-  );
-  if (parentRow === undefined) {
-    throw new ServiceError(
-      "internal",
-      "Map cells exist with no parent value, so their provenance cannot be established.",
-    );
-  }
-  const parent = toNumericEnvelope(decodeIndicatorRow(parentRow));
+  const parentId = str(rows[0]?.["value_id"]);
+
+  // The derived layers hang off different parents. A departure layer's cells belong to the
+  // indicator value they were differenced from; a per-cell substrate surface belongs to the
+  // area's substrate score. Either way a cell is never served without the claim it came
+  // from.
+  const parent =
+    parentId.startsWith("sub_")
+      ? await substrateParent(parentId)
+      : await numericParent(parentId);
+
 
   const response = {
     type: "FeatureCollection",
@@ -856,8 +856,120 @@ export async function getCells(
   };
 
   guard(response, "get_cells");
-  await recordClaims([claimRecordFor(parent, decodeIndicatorRow(parentRow))]);
   return response;
+}
+
+/** Parent envelope for a measured or departure layer. */
+async function numericParent(valueId: string): Promise<NumericEnvelope> {
+  const row = await queryOne(
+    `SELECT ${INDICATOR_COLUMNS} FROM lake.indicator_value WHERE value_id = $1`,
+    [valueId],
+  );
+  if (row === undefined) {
+    throw new ServiceError(
+      "internal",
+      "Map cells exist with no parent value, so their provenance cannot be established.",
+    );
+  }
+  const decoded = decodeIndicatorRow(row);
+  const envelope = toNumericEnvelope(decoded);
+  await recordClaims([claimRecordFor(envelope, decoded)]);
+  return envelope;
+}
+
+/** Parent envelope for the per-cell substrate surface: the area's score for that month. */
+async function substrateParent(scoreId: string): Promise<NumericEnvelope> {
+  const row = await queryOne("SELECT * FROM lake.substrate_score WHERE score_id = $1", [scoreId]);
+  if (row === undefined) {
+    throw new ServiceError("internal", "Substrate cells exist with no parent score.");
+  }
+  const period = { start: isoDate(row["period_start"]), end: isoDate(row["period_end"]) };
+  const score = num(row["score"]);
+  return {
+    kind: "numeric",
+    claim_id: claimIdFor(
+      "substrate_score",
+      str(row["geometry_hash"]),
+      period.start,
+      period.end,
+      str(row["weighting_scheme"]),
+      str(row["algorithm_version"]),
+      formatValue(score),
+    ),
+    indicator: "substrate_score",
+    value: score,
+    unit: "score_0_100",
+    confidence: num(row["confidence"]),
+    confidence_basis: json(row["confidence_basis_json"], {
+      observation_count: 0,
+      spatial_coverage: 0,
+      components: [],
+      aggregation: "unknown",
+    }),
+    validation_status: str(row["validation_status"]) as "validated" | "flagged",
+    flags: json(row["flags_json"], []),
+    provenance: json(row["provenance_json"], []),
+    method: json(row["method_json"], { name: "substrate score", citation: "this layer" }),
+    geometry_hash: str(row["geometry_hash"]),
+    period,
+    spatial_stats: null,
+    generated_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * Every layer the map can draw, with what each one is.
+ *
+ * Derived layers are marked as such. A reader looking at a per-cell substrate surface
+ * should know it is computed from measured components rather than observed directly, and
+ * that its climate terms do not vary across an area this size.
+ */
+export async function listLayers(aoiId: string): Promise<unknown> {
+  const rows = await query(
+    `SELECT indicator, count(DISTINCT period_start) AS periods, count(*) AS cells,
+            min(period_start) AS first_period, max(period_start) AS last_period
+     FROM lake.indicator_cell WHERE aoi_id = $1
+     GROUP BY indicator ORDER BY indicator`,
+    [aoiId],
+  );
+
+  const DESCRIPTIONS: Record<string, { label: string; kind: string; note: string }> = {
+    substrate_score: {
+      label: "Wildfire substrate",
+      kind: "derived",
+      note:
+        "The composite scored per 500 m cell rather than once for the area. Spectral and " +
+        "terrain components vary across the landscape; climate and soil enter from " +
+        "ERA5-Land at roughly 9 km, so they raise or lower the whole surface rather than " +
+        "shaping it.",
+    },
+    ndmi: { label: "Canopy moisture", kind: "measured", note: "NDMI. The closest open-data proxy for live fuel moisture." },
+    ndvi: { label: "Vegetation greenness", kind: "measured", note: "NDVI. Saturates over closed canopy." },
+    nbr: { label: "Burn ratio", kind: "measured", note: "NBR. Live vegetation against soil and char exposure." },
+    elevation_m: { label: "Elevation", kind: "measured", note: "Copernicus DEM at 30 m, resampled to the analysis grid." },
+    slope_deg: { label: "Slope", kind: "measured", note: "Horn (1981) from the elevation model." },
+    aspect_deg: { label: "Aspect", kind: "measured", note: "Compass bearing of the fall line. Undefined on flat ground." },
+    twi: { label: "Topographic wetness", kind: "measured", note: "Beven and Kirkby (1979), routed at 100 m." },
+    ndmi_departure: { label: "Moisture departure", kind: "derived", note: "NDMI against this cell's own twelve-month median. Negative is drier than normal for this place." },
+    ndvi_departure: { label: "Greenness departure", kind: "derived", note: "NDVI against this cell's own twelve-month median." },
+    nbr_departure: { label: "Burn ratio departure", kind: "derived", note: "NBR against this cell's own twelve-month median." },
+  };
+
+  return rows.map((r) => {
+    const indicator = str(r["indicator"]);
+    const meta = DESCRIPTIONS[indicator];
+    return {
+      indicator,
+      label: meta?.label ?? indicator,
+      kind: meta?.kind ?? "measured",
+      note: meta?.note ?? "",
+      static: num(r["periods"]) === 1 && isoDate(r["first_period"]) < "2001-01-01",
+      periods: num(r["periods"]),
+      cells: num(r["cells"]),
+      first_period: isoDate(r["first_period"]),
+      last_period: isoDate(r["last_period"]),
+    };
+  });
 }
 
 /** Available periods for an area, so the console can build its timeline. */

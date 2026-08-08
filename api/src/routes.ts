@@ -13,7 +13,9 @@ import {
   getEcologicalState,
   getProvenance,
   getWildfireSubstrateScore,
+  interpretLayer,
   listCoverage,
+  listLayers,
   listPeriods,
   type DateRange,
   type GeometryInput,
@@ -126,4 +128,20 @@ routes.get("/v1/cells/:aoiId/:indicator/:periodStart", async (c) => {
 
 routes.get("/v1/periods/:aoiId", async (c) => {
   return c.json(await listPeriods(c.req.param("aoiId")));
+});
+
+routes.get("/v1/layers/:aoiId", async (c) => {
+  return c.json(await listLayers(c.req.param("aoiId")));
+});
+
+// Deterministic landscape analysis of one layer: distribution, zonal breakdowns by
+// terrain, correlations, extremes, and a written read assembled from those numbers.
+routes.get("/v1/interpretation/:aoiId/:indicator/:periodStart", async (c) => {
+  return c.json(
+    await interpretLayer(
+      c.req.param("aoiId"),
+      c.req.param("indicator"),
+      c.req.param("periodStart"),
+    ),
+  );
 });

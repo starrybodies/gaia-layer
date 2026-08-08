@@ -13,4 +13,5 @@ export * from "./trends.js";
 export * from "./summary.js";
 export { claimIdFor } from "./claims.js";
 export { close, isPopulated, lakePath } from "./db.js";
+export * from "./interpret.js";
 export * from "./tools.js";
