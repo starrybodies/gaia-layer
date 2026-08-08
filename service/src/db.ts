@@ -1,40 +1,74 @@
 /**
- * Read-only access to the DuckDB data lake.
+ * Database access: the claim ledger, with the measurement lake attached read-only.
  *
- * The service layer never writes. Values are produced by the pipeline, under a run
- * manifest, and only read here — with one exception, the `claim` table, which records what
- * has been served so `get_provenance` can answer for it later.
+ * The service never writes a measurement. Values are produced by the pipeline under a run
+ * manifest and only read here. The one thing the service does write is the claim ledger —
+ * a record of what it has served, so `get_provenance` can answer for a number later — and
+ * that lives in its own file so the two writers never contend.
  */
 
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
 import { LakeUnavailableError } from "./errors.js";
 
 let instance: DuckDBInstance | undefined;
 let connection: DuckDBConnection | undefined;
 
+function dataDir(): string {
+  return resolve(process.env["GAIA_DATA_DIR"] ?? resolve(process.cwd(), "..", "data"));
+}
+
+/** The measurement lake, written by the pipeline and read here. */
 export function lakePath(): string {
   const explicit = process.env["GAIA_DUCKDB_PATH"];
   if (explicit !== undefined && explicit !== "") return resolve(explicit);
-  const dataDir = process.env["GAIA_DATA_DIR"] ?? resolve(process.cwd(), "..", "data");
-  return resolve(dataDir, "gaia.duckdb");
+  return resolve(dataDir(), "gaia.duckdb");
 }
 
+/** The claim ledger, written here and by nothing else. */
+export function claimsPath(): string {
+  const explicit = process.env["GAIA_CLAIMS_PATH"];
+  if (explicit !== undefined && explicit !== "") return resolve(explicit);
+  return resolve(dataDir(), "claims.duckdb");
+}
+
+function schemaFile(name: string): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  // dist/ at runtime, src/ under tsx; the repository root is two levels up from either.
+  return readFileSync(resolve(here, "..", "..", "schema", name), "utf8");
+}
+
+/**
+ * Open the claim ledger and attach the measurement lake read-only.
+ *
+ * Tables from the lake are addressed as `lake.indicator_value` and so on; `claim` is local.
+ * The read-only attach is what lets several API processes serve at once — DuckDB permits
+ * concurrent readers, but only one writer, and the writer is the pipeline.
+ *
+ * While an ingest is running it holds the lake's write lock and this will fail. That is
+ * reported as a retryable `lake_unavailable`, which is the honest answer: the data is
+ * mid-flight, ask again shortly.
+ */
 export async function connect(): Promise<DuckDBConnection> {
   if (connection !== undefined) return connection;
 
-  const path = lakePath();
-  if (!existsSync(path)) {
-    throw new LakeUnavailableError(path, "file does not exist");
+  const lake = lakePath();
+  if (!existsSync(lake)) {
+    throw new LakeUnavailableError(lake, "file does not exist");
   }
+
   try {
-    instance = await DuckDBInstance.create(path, { access_mode: "READ_WRITE" });
+    instance = await DuckDBInstance.create(claimsPath(), { access_mode: "READ_WRITE" });
     connection = await instance.connect();
-    await connection.run("INSTALL spatial; LOAD spatial;");
+    await connection.run(schemaFile("claims.sql"));
+    await connection.run(`ATTACH '${lake.replace(/'/g, "''")}' AS lake (READ_ONLY)`);
     return connection;
   } catch (cause) {
-    throw new LakeUnavailableError(path, cause instanceof Error ? cause.message : String(cause));
+    connection = undefined;
+    instance = undefined;
+    throw new LakeUnavailableError(lake, cause instanceof Error ? cause.message : String(cause));
   }
 }
 
@@ -74,7 +108,7 @@ export async function execute(sql: string, params: unknown[] = []): Promise<void
 /** True when the lake exists and has at least one ingested area. */
 export async function isPopulated(): Promise<boolean> {
   try {
-    const row = await queryOne("SELECT count(*) AS n FROM aoi");
+    const row = await queryOne("SELECT count(*) AS n FROM lake.aoi");
     return Number(row?.["n"] ?? 0) > 0;
   } catch {
     return false;

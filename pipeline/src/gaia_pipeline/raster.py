@@ -125,6 +125,19 @@ def write_cog(path: Path, data: np.ndarray, grid: AnalysisGrid, *, description: 
     path.parent.mkdir(parents=True, exist_ok=True)
     array = np.ascontiguousarray(data.astype("float32"))
 
+    # Creation options travel to the final copy; the geospatial profile comes from the
+    # in-memory source, so passing it again would collide.
+    creation_options = {
+        "tiled": True,
+        "blockxsize": 512,
+        "blockysize": 512,
+        "compress": "deflate",
+        "predictor": 3,
+        # Level 1 rather than 6: on a 10-megapixel float grid the extra levels cost
+        # more wall clock during a twelve-month ingest than they save in disk.
+        "zlevel": 1,
+    }
+
     profile = {
         "driver": "GTiff",
         "dtype": "float32",
@@ -139,7 +152,7 @@ def write_cog(path: Path, data: np.ndarray, grid: AnalysisGrid, *, description: 
         "blockysize": 512,
         "compress": "deflate",
         "predictor": 3,
-        "zlevel": 6,
+        "zlevel": 1,
     }
 
     with MemoryFile() as memfile:
@@ -147,9 +160,9 @@ def write_cog(path: Path, data: np.ndarray, grid: AnalysisGrid, *, description: 
             tmp.write(array, 1)
             if description:
                 tmp.set_band_description(1, description)
-            tmp.build_overviews([2, 4, 8, 16], Resampling.average)
+            tmp.build_overviews([2, 4, 8], Resampling.average)
         with memfile.open() as tmp:
-            rio_copy(tmp, str(path), driver="GTiff", copy_src_overviews=True, **profile)
+            rio_copy(tmp, str(path), driver="GTiff", copy_src_overviews=True, **creation_options)
 
     return path
 

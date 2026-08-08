@@ -11,7 +11,9 @@ import { serve } from "@hono/node-server";
 import { API_KEY_HEADER, assertProvenanced } from "@gaia/core";
 import { ServiceError, isPopulated, lakePath } from "@gaia/service";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import type { Context, Next } from "hono";
+import { routes } from "./routes.js";
 
 const PORT = Number(process.env["API_PORT"] ?? 8811);
 
@@ -44,6 +46,8 @@ async function apiKeyAuth(c: Context, next: Next): Promise<Response | void> {
   return next();
 }
 
+// The console runs on a different port, so it is a cross-origin caller by construction.
+app.use("*", cors({ origin: (origin) => origin, allowHeaders: [API_KEY_HEADER, "content-type"] }));
 app.use("*", apiKeyAuth);
 
 app.onError((err, c) => {
@@ -88,6 +92,20 @@ app.use("*", async (c, next) => {
   const body: unknown = await clone.json();
   assertProvenanced(body, c.req.path);
 });
+
+app.route("/", routes);
+
+app.notFound((c) =>
+  c.json(
+    {
+      error: "invalid_request",
+      message: `No route for ${c.req.method} ${c.req.path}.`,
+      retryable: false,
+      generated_at: new Date().toISOString(),
+    },
+    404,
+  ),
+);
 
 if (process.env["NODE_ENV"] !== "test") {
   const keyConfigured = (process.env["GAIA_API_KEY"] ?? "") !== "";

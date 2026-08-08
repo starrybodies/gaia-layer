@@ -47,6 +47,11 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# Typer declares options as call expressions in argument defaults. That is the
+# framework's interface, not an accident.
+"src/gaia_pipeline/cli.py" = ["B008"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

@@ -13,6 +13,7 @@ remember — it is a type error.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from typing import Literal
 
@@ -33,8 +34,34 @@ CLAIM_ID_PATTERN = r"^clm_[0-9A-HJKMNP-TV-Z]{26}$"
 
 
 def new_claim_id() -> str:
-    """Mint an identifier for a claim. Lexicographically sortable by mint time."""
+    """Mint a fresh identifier. Lexicographically sortable by mint time."""
     return f"clm_{ULID()}"
+
+
+# Crockford base32: no I, L, O or U, so a claim id read aloud or copied by hand does not
+# turn into a different claim id.
+_CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+
+
+def claim_id_for(*parts: object) -> str:
+    """Derive a claim identifier from the content of the claim.
+
+    Deterministic rather than random, so asking the same question twice returns the same
+    id. Two consequences follow, both wanted: the claim table converges instead of growing
+    without bound, and a claim id an agent quoted last week still resolves today.
+    """
+    canonical = "\x1f".join(str(p) for p in parts)
+    # SHA-256 truncated to 128 bits rather than BLAKE2b-128: the service layer has to derive
+    # the same id in Node, whose crypto module exposes BLAKE2b only at 512 bits, and BLAKE2b
+    # at a different digest length is a different function, not a truncation of one.
+    digest = hashlib.sha256(canonical.encode()).digest()[:16]
+    value = int.from_bytes(digest, "big")
+
+    chars = [""] * 26
+    for i in range(25, -1, -1):
+        chars[i] = _CROCKFORD[value & 0x1F]
+        value >>= 5
+    return f"clm_{''.join(chars)}"
 
 
 class ValidationFlag(Strict):

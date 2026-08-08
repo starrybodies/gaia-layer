@@ -117,33 +117,6 @@ CREATE INDEX IF NOT EXISTS idx_indicator_value_lookup
 CREATE INDEX IF NOT EXISTS idx_indicator_value_aoi_period
     ON indicator_value (aoi_id, period_start, period_end);
 
--- Every envelope the layer has ever served.
---
--- Claim ids are derived from the claim's content, not minted at random, so asking the same
--- question twice returns the same id and this table converges instead of growing forever.
--- It is what makes get_provenance work on a number an agent quoted last week.
-CREATE TABLE IF NOT EXISTS claim (
-    claim_id        TEXT PRIMARY KEY,
-    claim_kind      TEXT NOT NULL,            -- numeric | trend | substrate_score
-    indicator       TEXT,
-    aoi_id          TEXT,
-    geometry_hash   TEXT NOT NULL,
-    period_start    DATE NOT NULL,
-    period_end      DATE NOT NULL,
-    value_repr      TEXT NOT NULL,
-    unit            TEXT NOT NULL,
-    confidence      DOUBLE NOT NULL,
-    validation_json TEXT NOT NULL,
-    method_json     TEXT NOT NULL,
-    provenance_json TEXT NOT NULL,
-    source_ids      TEXT NOT NULL DEFAULT '[]',
-    payload_json    TEXT NOT NULL,
-    served_at       TIMESTAMPTZ NOT NULL,
-    last_served_at  TIMESTAMPTZ NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_claim_geometry ON claim (geometry_hash, period_start);
-
 -- Composite wildfire substrate scores.
 --
 -- Computed in the pipeline, not at serve time, for the same reason the indicators are: the

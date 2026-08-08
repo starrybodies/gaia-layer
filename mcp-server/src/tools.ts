@@ -6,7 +6,16 @@
  * citable provenance chain.
  */
 
-import { ServiceError, listCoverage } from "@gaia/service";
+import {
+  ServiceError,
+  comparePeriods,
+  getEcologicalState,
+  getProvenance,
+  getWildfireSubstrateScore,
+  listCoverage,
+  type DateRange,
+  type GeometryInput,
+} from "@gaia/service";
 
 const GEOMETRY_SCHEMA = {
   description:
@@ -145,16 +154,70 @@ export const TOOL_DEFINITIONS = [
   },
 ] as const;
 
+function requireGeometry(args: Record<string, unknown>): GeometryInput {
+  const geometry = args["geometry"];
+  if (geometry === undefined || geometry === null || typeof geometry !== "object") {
+    throw new ServiceError("invalid_request", "geometry is required.");
+  }
+  return geometry as GeometryInput;
+}
+
+function requireRange(args: Record<string, unknown>, key: string): DateRange {
+  const range = args[key];
+  if (range === null || typeof range !== "object") {
+    throw new ServiceError("invalid_request", `${key} is required.`);
+  }
+  const { start, end } = range as { start?: unknown; end?: unknown };
+  if (typeof start !== "string" || typeof end !== "string") {
+    throw new ServiceError("invalid_request", `${key} needs string start and end dates.`);
+  }
+  return { start, end };
+}
+
+function optionalIndicators(args: Record<string, unknown>): string[] | undefined {
+  const value = args["indicators"];
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((v): v is string => typeof v === "string");
+}
+
 export async function callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
   switch (name) {
-    case "list_coverage":
-      return listCoverage();
     case "get_ecological_state":
-    case "get_wildfire_substrate_score":
-    case "get_provenance":
+      return getEcologicalState(
+        requireGeometry(args),
+        requireRange(args, "date_range"),
+        optionalIndicators(args),
+      );
+
+    case "get_wildfire_substrate_score": {
+      const date = args["date"];
+      if (typeof date !== "string") {
+        throw new ServiceError("invalid_request", "date is required, as YYYY-MM-DD.");
+      }
+      return getWildfireSubstrateScore(requireGeometry(args), date);
+    }
+
+    case "get_provenance": {
+      const claimId = args["claim_id"];
+      if (typeof claimId !== "string") {
+        throw new ServiceError("invalid_request", "claim_id is required.");
+      }
+      return getProvenance(claimId);
+    }
+
     case "compare_periods":
-      void args;
-      throw new ServiceError("internal", `${name} is not implemented yet.`);
+      return comparePeriods(
+        requireGeometry(args),
+        requireRange(args, "period_a"),
+        requireRange(args, "period_b"),
+        optionalIndicators(args),
+      );
+
+    case "list_coverage": {
+      const aoiId = args["aoi_id"];
+      return listCoverage(typeof aoiId === "string" ? aoiId : undefined);
+    }
+
     default:
       throw new ServiceError("invalid_request", `Unknown tool: ${name}`);
   }
