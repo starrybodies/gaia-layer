@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/*
+ * Design language: institutional, technical, restrained. Bloomberg terminal meets field
+ * notebook. Dark neutral base, one accent, dense data displayed cleanly. No eco-kitsch —
+ * this is an instrument panel for people underwriting land, not a nature brochure.
+ */
+
+@theme {
+  /* Neutral base — warm-shifted greys so the dark surface reads as paper, not plastic. */
+  --color-base-950: #0b0c0b;
+  --color-base-900: #121412;
+  --color-base-850: #171a17;
+  --color-base-800: #1d211d;
+  --color-base-700: #2a2f2a;
+  --color-base-600: #3d443d;
+  --color-base-500: #5a625a;
+  --color-base-400: #838b83;
+  --color-base-300: #a8b0a8;
+  --color-base-200: #ccd2cc;
+  --color-base-100: #e8ebe8;
+
+  /* The single accent. Used for interactive affordance and nothing decorative. */
+  --color-accent-500: #d4703a;
+  --color-accent-400: #e08951;
+  --color-accent-600: #b25a2b;
+
+  /* Status. Applied only to validation state and score bands, never to chrome. */
+  --color-status-validated: #6f9e6f;
+  --color-status-flagged: #c9a227;
+  --color-status-rejected: #b4574c;
+
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-base-950);
+  color: var(--color-base-200);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers are the point. They get the monospace treatment and tabular figures so columns
+   of them line up and can be compared down the page. */
+.numeric {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}

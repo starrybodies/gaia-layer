@@ -1,0 +1,235 @@
+{
+  "$defs": {
+    "AoiCoverage": {
+      "additionalProperties": false,
+      "properties": {
+        "analysis_crs": {
+          "title": "Analysis Crs",
+          "type": "string"
+        },
+        "aoi_id": {
+          "title": "Aoi Id",
+          "type": "string"
+        },
+        "area_km2": {
+          "exclusiveMinimum": 0.0,
+          "title": "Area Km2",
+          "type": "number"
+        },
+        "bbox": {
+          "$ref": "#/$defs/BBox"
+        },
+        "grid_resolution_m": {
+          "exclusiveMinimum": 0.0,
+          "title": "Grid Resolution M",
+          "type": "number"
+        },
+        "indicators": {
+          "items": {
+            "$ref": "#/$defs/IndicatorCoverage"
+          },
+          "title": "Indicators",
+          "type": "array"
+        },
+        "last_ingested_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Ingested At"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "aoi_id",
+        "name",
+        "bbox",
+        "area_km2",
+        "analysis_crs",
+        "grid_resolution_m",
+        "indicators"
+      ],
+      "title": "AoiCoverage",
+      "type": "object"
+    },
+    "BBox": {
+      "additionalProperties": false,
+      "description": "Axis-aligned bounding box in WGS84 degrees.",
+      "properties": {
+        "east": {
+          "maximum": 180.0,
+          "minimum": -180.0,
+          "title": "East",
+          "type": "number"
+        },
+        "north": {
+          "maximum": 90.0,
+          "minimum": -90.0,
+          "title": "North",
+          "type": "number"
+        },
+        "south": {
+          "maximum": 90.0,
+          "minimum": -90.0,
+          "title": "South",
+          "type": "number"
+        },
+        "west": {
+          "maximum": 180.0,
+          "minimum": -180.0,
+          "title": "West",
+          "type": "number"
+        }
+      },
+      "required": [
+        "west",
+        "south",
+        "east",
+        "north"
+      ],
+      "title": "BBox",
+      "type": "object"
+    },
+    "IndicatorCoverage": {
+      "additionalProperties": false,
+      "properties": {
+        "family": {
+          "$ref": "#/$defs/IndicatorFamily"
+        },
+        "first_period_start": {
+          "format": "date",
+          "title": "First Period Start",
+          "type": "string"
+        },
+        "flagged_count": {
+          "minimum": 0,
+          "title": "Flagged Count",
+          "type": "integer"
+        },
+        "indicator": {
+          "$ref": "#/$defs/IndicatorId"
+        },
+        "last_period_end": {
+          "format": "date",
+          "title": "Last Period End",
+          "type": "string"
+        },
+        "mean_confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Mean Confidence",
+          "type": "number"
+        },
+        "period_count": {
+          "minimum": 0,
+          "title": "Period Count",
+          "type": "integer"
+        },
+        "rejected_count": {
+          "minimum": 0,
+          "title": "Rejected Count",
+          "type": "integer"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "validated_count": {
+          "minimum": 0,
+          "title": "Validated Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "indicator",
+        "family",
+        "unit",
+        "first_period_start",
+        "last_period_end",
+        "period_count",
+        "mean_confidence",
+        "validated_count",
+        "flagged_count",
+        "rejected_count",
+        "source"
+      ],
+      "title": "IndicatorCoverage",
+      "type": "object"
+    },
+    "IndicatorFamily": {
+      "enum": [
+        "spectral",
+        "climate",
+        "soil",
+        "terrain"
+      ],
+      "title": "IndicatorFamily",
+      "type": "string"
+    },
+    "IndicatorId": {
+      "description": "Every quantity the layer can serve.\n\nGrouped by family; the family is derivable via :func:`indicator_family`.",
+      "enum": [
+        "ndvi",
+        "ndmi",
+        "nbr",
+        "vpd_kpa",
+        "precip_30d_mm",
+        "temp_max_c",
+        "days_since_rain",
+        "soil_moisture_0_7cm",
+        "soil_moisture_7_28cm",
+        "elevation_m",
+        "slope_deg",
+        "aspect_deg",
+        "twi"
+      ],
+      "title": "IndicatorId",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "algorithm_version": {
+      "title": "Algorithm Version",
+      "type": "string"
+    },
+    "aois": {
+      "items": {
+        "$ref": "#/$defs/AoiCoverage"
+      },
+      "title": "Aois",
+      "type": "array"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "pipeline_version": {
+      "title": "Pipeline Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "aois",
+    "pipeline_version",
+    "algorithm_version",
+    "generated_at"
+  ],
+  "title": "CoverageResponse",
+  "type": "object"
+}

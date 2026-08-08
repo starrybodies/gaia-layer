@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Distribution of the indicator across the geometry.\n\nThe envelope's scalar ``value`` is an aggregate over an area. Serving the aggregate\nwithout its spread would hide the case where half a parcel is saturated and half is\ntinder-dry, which is exactly the case an underwriter needs to see.",
+  "properties": {
+    "maximum": {
+      "title": "Maximum",
+      "type": "number"
+    },
+    "mean": {
+      "title": "Mean",
+      "type": "number"
+    },
+    "median": {
+      "title": "Median",
+      "type": "number"
+    },
+    "minimum": {
+      "title": "Minimum",
+      "type": "number"
+    },
+    "p10": {
+      "title": "P10",
+      "type": "number"
+    },
+    "p90": {
+      "title": "P90",
+      "type": "number"
+    },
+    "std": {
+      "minimum": 0.0,
+      "title": "Std",
+      "type": "number"
+    },
+    "total_pixels": {
+      "exclusiveMinimum": 0,
+      "title": "Total Pixels",
+      "type": "integer"
+    },
+    "valid_pixels": {
+      "minimum": 0,
+      "title": "Valid Pixels",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "mean",
+    "median",
+    "std",
+    "p10",
+    "p90",
+    "minimum",
+    "maximum",
+    "valid_pixels",
+    "total_pixels"
+  ],
+  "title": "SpatialStats",
+  "type": "object"
+}

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Direction and strength of change in an indicator over a period.\n\n``significant`` is the field that matters. A slope without a significance test invites\nthe reader to see a trend in noise, which is the quantitative failure mode lesson 2\nexists to prevent.",
+  "properties": {
+    "direction": {
+      "enum": [
+        "increasing",
+        "decreasing",
+        "stable"
+      ],
+      "title": "Direction",
+      "type": "string"
+    },
+    "first": {
+      "description": "Fitted value at the start of the period.",
+      "title": "First",
+      "type": "number"
+    },
+    "last": {
+      "description": "Fitted value at the end of the period.",
+      "title": "Last",
+      "type": "number"
+    },
+    "n_observations": {
+      "minimum": 0,
+      "title": "N Observations",
+      "type": "integer"
+    },
+    "p_value": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "P Value",
+      "type": "number"
+    },
+    "r_squared": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "R Squared",
+      "type": "number"
+    },
+    "significant": {
+      "description": "True when p < 0.05 and at least 4 observations contributed.",
+      "title": "Significant",
+      "type": "boolean"
+    },
+    "slope_per_month": {
+      "description": "Ordinary least squares slope, units per month.",
+      "title": "Slope Per Month",
+      "type": "number"
+    }
+  },
+  "required": [
+    "direction",
+    "slope_per_month",
+    "r_squared",
+    "p_value",
+    "significant",
+    "n_observations",
+    "first",
+    "last"
+  ],
+  "title": "Trend",
+  "type": "object"
+}

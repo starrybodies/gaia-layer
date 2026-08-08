@@ -1,0 +1,92 @@
+{
+  "$defs": {
+    "BBox": {
+      "additionalProperties": false,
+      "description": "Axis-aligned bounding box in WGS84 degrees.",
+      "properties": {
+        "east": {
+          "maximum": 180.0,
+          "minimum": -180.0,
+          "title": "East",
+          "type": "number"
+        },
+        "north": {
+          "maximum": 90.0,
+          "minimum": -90.0,
+          "title": "North",
+          "type": "number"
+        },
+        "south": {
+          "maximum": 90.0,
+          "minimum": -90.0,
+          "title": "South",
+          "type": "number"
+        },
+        "west": {
+          "maximum": 180.0,
+          "minimum": -180.0,
+          "title": "West",
+          "type": "number"
+        }
+      },
+      "required": [
+        "west",
+        "south",
+        "east",
+        "north"
+      ],
+      "title": "BBox",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The geometry a response describes, after snapping to the analysis grid.",
+  "properties": {
+    "analysis_crs": {
+      "description": "CRS the indicators were computed in.",
+      "title": "Analysis Crs",
+      "type": "string"
+    },
+    "aoi_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Set when the geometry matched a configured AOI.",
+      "title": "Aoi Id"
+    },
+    "area_km2": {
+      "exclusiveMinimum": 0.0,
+      "title": "Area Km2",
+      "type": "number"
+    },
+    "bbox": {
+      "$ref": "#/$defs/BBox"
+    },
+    "geometry_hash": {
+      "minLength": 8,
+      "title": "Geometry Hash",
+      "type": "string"
+    },
+    "grid_resolution_m": {
+      "exclusiveMinimum": 0.0,
+      "title": "Grid Resolution M",
+      "type": "number"
+    }
+  },
+  "required": [
+    "geometry_hash",
+    "bbox",
+    "area_km2",
+    "analysis_crs",
+    "grid_resolution_m"
+  ],
+  "title": "ResolvedGeometry",
+  "type": "object"
+}

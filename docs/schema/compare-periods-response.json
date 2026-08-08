@@ -1,0 +1,827 @@
+{
+  "$defs": {
+    "BBox": {
+      "additionalProperties": false,
+      "description": "Axis-aligned bounding box in WGS84 degrees.",
+      "properties": {
+        "east": {
+          "maximum": 180.0,
+          "minimum": -180.0,
+          "title": "East",
+          "type": "number"
+        },
+        "north": {
+          "maximum": 90.0,
+          "minimum": -90.0,
+          "title": "North",
+          "type": "number"
+        },
+        "south": {
+          "maximum": 90.0,
+          "minimum": -90.0,
+          "title": "South",
+          "type": "number"
+        },
+        "west": {
+          "maximum": 180.0,
+          "minimum": -180.0,
+          "title": "West",
+          "type": "number"
+        }
+      },
+      "required": [
+        "west",
+        "south",
+        "east",
+        "north"
+      ],
+      "title": "BBox",
+      "type": "object"
+    },
+    "ConfidenceBasis": {
+      "additionalProperties": false,
+      "description": "How the confidence score was arrived at.\n\nv0.1 keeps this deliberately simple, as the build prompt directs: composite pixel\ncount, cloud fraction, and sensor revisit gap. The structure admits more components\nlater without changing the envelope shape.",
+      "properties": {
+        "aggregation": {
+          "default": "weighted_arithmetic_mean",
+          "description": "How components combine into the score.",
+          "title": "Aggregation",
+          "type": "string"
+        },
+        "cloud_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Mean cloud fraction across contributing scenes.",
+          "title": "Cloud Fraction"
+        },
+        "components": {
+          "items": {
+            "$ref": "#/$defs/ConfidenceComponent"
+          },
+          "minItems": 1,
+          "title": "Components",
+          "type": "array"
+        },
+        "observation_count": {
+          "description": "Number of source observations composited into this value.",
+          "minimum": 0,
+          "title": "Observation Count",
+          "type": "integer"
+        },
+        "revisit_gap_days": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Longest gap between contributing observations.",
+          "title": "Revisit Gap Days"
+        },
+        "spatial_coverage": {
+          "description": "Fraction of the geometry with a valid observation.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Spatial Coverage",
+          "type": "number"
+        }
+      },
+      "required": [
+        "observation_count",
+        "spatial_coverage",
+        "components"
+      ],
+      "title": "ConfidenceBasis",
+      "type": "object"
+    },
+    "ConfidenceComponent": {
+      "additionalProperties": false,
+      "description": "One named input to the confidence score, kept separate so the score decomposes.",
+      "properties": {
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "value": {
+          "description": "Component score, 1.0 being ideal.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Value",
+          "type": "number"
+        },
+        "weight": {
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "weight",
+        "description"
+      ],
+      "title": "ConfidenceComponent",
+      "type": "object"
+    },
+    "DateRange": {
+      "additionalProperties": false,
+      "description": "Inclusive date range. The layer works in whole days; sub-daily is out of scope.",
+      "properties": {
+        "end": {
+          "format": "date",
+          "title": "End",
+          "type": "string"
+        },
+        "start": {
+          "format": "date",
+          "title": "Start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "DateRange",
+      "type": "object"
+    },
+    "IndicatorComparison": {
+      "additionalProperties": false,
+      "properties": {
+        "delta": {
+          "description": "period_b minus period_a, in the indicator's unit.",
+          "title": "Delta",
+          "type": "number"
+        },
+        "indicator": {
+          "$ref": "#/$defs/IndicatorId"
+        },
+        "interpretation": {
+          "title": "Interpretation",
+          "type": "string"
+        },
+        "p_value": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P Value"
+        },
+        "percent_change": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Omitted when the period A value is at or near zero.",
+          "title": "Percent Change"
+        },
+        "period_a": {
+          "$ref": "#/$defs/NumericEnvelope"
+        },
+        "period_b": {
+          "$ref": "#/$defs/NumericEnvelope"
+        },
+        "significance_method": {
+          "description": "How significance was decided, e.g. 'welch_t_test_alpha_0.05'.",
+          "title": "Significance Method",
+          "type": "string"
+        },
+        "significant": {
+          "title": "Significant",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "indicator",
+        "period_a",
+        "period_b",
+        "delta",
+        "significant",
+        "significance_method",
+        "interpretation"
+      ],
+      "title": "IndicatorComparison",
+      "type": "object"
+    },
+    "IndicatorId": {
+      "description": "Every quantity the layer can serve.\n\nGrouped by family; the family is derivable via :func:`indicator_family`.",
+      "enum": [
+        "ndvi",
+        "ndmi",
+        "nbr",
+        "vpd_kpa",
+        "precip_30d_mm",
+        "temp_max_c",
+        "days_since_rain",
+        "soil_moisture_0_7cm",
+        "soil_moisture_7_28cm",
+        "elevation_m",
+        "slope_deg",
+        "aspect_deg",
+        "twi"
+      ],
+      "title": "IndicatorId",
+      "type": "string"
+    },
+    "JsonValue": {},
+    "Method": {
+      "additionalProperties": false,
+      "description": "The published method a value was computed by, so a consumer can check the maths.",
+      "properties": {
+        "citation": {
+          "description": "Full bibliographic citation for the method.",
+          "minLength": 1,
+          "title": "Citation",
+          "type": "string"
+        },
+        "doi": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Doi"
+        },
+        "formula": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Formula"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "name",
+        "citation"
+      ],
+      "title": "Method",
+      "type": "object"
+    },
+    "NumericEnvelope": {
+      "additionalProperties": false,
+      "description": "A single scalar indicator value for a geometry over a period.",
+      "properties": {
+        "claim_id": {
+          "description": "Identifier for this exact claim. Pass to get_provenance to trace it.",
+          "pattern": "^clm_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "confidence_basis": {
+          "$ref": "#/$defs/ConfidenceBasis"
+        },
+        "flags": {
+          "items": {
+            "$ref": "#/$defs/ValidationFlag"
+          },
+          "title": "Flags",
+          "type": "array"
+        },
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "geometry_hash": {
+          "description": "Stable hash of the geometry this value describes.",
+          "minLength": 8,
+          "title": "Geometry Hash",
+          "type": "string"
+        },
+        "indicator": {
+          "$ref": "#/$defs/IndicatorId"
+        },
+        "kind": {
+          "const": "numeric",
+          "default": "numeric",
+          "title": "Kind",
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/Method"
+        },
+        "period": {
+          "$ref": "#/$defs/DateRange",
+          "description": "Period the value describes."
+        },
+        "provenance": {
+          "description": "Ordered chain from source observation to validated output. Never empty \u2014 a value without provenance cannot be constructed.",
+          "items": {
+            "$ref": "#/$defs/ProvenanceStep"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "spatial_stats": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpatialStats"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "unit": {
+          "description": "Unit of the value. 'index' for unitless ratios.",
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        },
+        "validation_status": {
+          "$ref": "#/$defs/ServedStatus"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "claim_id",
+        "unit",
+        "confidence",
+        "confidence_basis",
+        "validation_status",
+        "provenance",
+        "method",
+        "geometry_hash",
+        "period",
+        "generated_at",
+        "indicator",
+        "value"
+      ],
+      "title": "NumericEnvelope",
+      "type": "object"
+    },
+    "ProvenanceStep": {
+      "additionalProperties": false,
+      "description": "One link in the chain.\n\nThe six fields the build prompt calls non-negotiable for an ingested record \u2014 source,\ndataset id, acquisition time, processing time, pipeline version, spatial reference \u2014\nare all here. They are optional only where the step kind makes them meaningless: a\nvalidation step has no acquisition timestamp of its own, it inherits the one carried by\nthe observation steps beneath it.",
+      "properties": {
+        "access_route": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How the data was reached, e.g. 'earth-search-v1' or 'open-meteo-archive'. Distinguishes the dataset from the intermediary that served it.",
+          "title": "Access Route"
+        },
+        "acquired_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the underlying observation was made.",
+          "title": "Acquired At"
+        },
+        "algorithm_version": {
+          "title": "Algorithm Version",
+          "type": "string"
+        },
+        "asset_ids": {
+          "description": "Scene, granule or asset identifiers consumed by this step.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Asset Ids",
+          "type": "array"
+        },
+        "dataset_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Dataset identifier, e.g. 'sentinel-2-l2a'.",
+          "title": "Dataset Id"
+        },
+        "description": {
+          "description": "Plain-language account of what this step did.",
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "index": {
+          "description": "Position in the chain, 0 first.",
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/StepKind"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "description": "Every parameter that affects the numeric output of this step.",
+          "title": "Parameters",
+          "type": "object"
+        },
+        "pipeline_version": {
+          "title": "Pipeline Version",
+          "type": "string"
+        },
+        "processed_at": {
+          "description": "When this step ran.",
+          "format": "date-time",
+          "title": "Processed At",
+          "type": "string"
+        },
+        "resolution_m": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolution M"
+        },
+        "software": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Library and version doing the work, e.g. 'rasterio 1.4.3'.",
+          "title": "Software"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Originating organisation, e.g. 'ESA/Copernicus'.",
+          "title": "Source"
+        },
+        "spatial_ref": {
+          "description": "CRS of this step's output, as an authority code, e.g. 'EPSG:32610'.",
+          "title": "Spatial Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "kind",
+        "description",
+        "processed_at",
+        "pipeline_version",
+        "algorithm_version",
+        "spatial_ref"
+      ],
+      "title": "ProvenanceStep",
+      "type": "object"
+    },
+    "ResolvedGeometry": {
+      "additionalProperties": false,
+      "description": "The geometry a response describes, after snapping to the analysis grid.",
+      "properties": {
+        "analysis_crs": {
+          "description": "CRS the indicators were computed in.",
+          "title": "Analysis Crs",
+          "type": "string"
+        },
+        "aoi_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Set when the geometry matched a configured AOI.",
+          "title": "Aoi Id"
+        },
+        "area_km2": {
+          "exclusiveMinimum": 0.0,
+          "title": "Area Km2",
+          "type": "number"
+        },
+        "bbox": {
+          "$ref": "#/$defs/BBox"
+        },
+        "geometry_hash": {
+          "minLength": 8,
+          "title": "Geometry Hash",
+          "type": "string"
+        },
+        "grid_resolution_m": {
+          "exclusiveMinimum": 0.0,
+          "title": "Grid Resolution M",
+          "type": "number"
+        }
+      },
+      "required": [
+        "geometry_hash",
+        "bbox",
+        "area_km2",
+        "analysis_crs",
+        "grid_resolution_m"
+      ],
+      "title": "ResolvedGeometry",
+      "type": "object"
+    },
+    "ServedStatus": {
+      "description": "The subset of :class:`ValidationStatus` a served value is allowed to carry.\n\n``rejected`` is deliberately absent. A rejected value is never served as an answer,\nand this enum is what makes that a type error rather than a convention.",
+      "enum": [
+        "validated",
+        "flagged"
+      ],
+      "title": "ServedStatus",
+      "type": "string"
+    },
+    "Severity": {
+      "enum": [
+        "warn",
+        "error"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "SpatialStats": {
+      "additionalProperties": false,
+      "description": "Distribution of the indicator across the geometry.\n\nThe envelope's scalar ``value`` is an aggregate over an area. Serving the aggregate\nwithout its spread would hide the case where half a parcel is saturated and half is\ntinder-dry, which is exactly the case an underwriter needs to see.",
+      "properties": {
+        "maximum": {
+          "title": "Maximum",
+          "type": "number"
+        },
+        "mean": {
+          "title": "Mean",
+          "type": "number"
+        },
+        "median": {
+          "title": "Median",
+          "type": "number"
+        },
+        "minimum": {
+          "title": "Minimum",
+          "type": "number"
+        },
+        "p10": {
+          "title": "P10",
+          "type": "number"
+        },
+        "p90": {
+          "title": "P90",
+          "type": "number"
+        },
+        "std": {
+          "minimum": 0.0,
+          "title": "Std",
+          "type": "number"
+        },
+        "total_pixels": {
+          "exclusiveMinimum": 0,
+          "title": "Total Pixels",
+          "type": "integer"
+        },
+        "valid_pixels": {
+          "minimum": 0,
+          "title": "Valid Pixels",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "mean",
+        "median",
+        "std",
+        "p10",
+        "p90",
+        "minimum",
+        "maximum",
+        "valid_pixels",
+        "total_pixels"
+      ],
+      "title": "SpatialStats",
+      "type": "object"
+    },
+    "StepKind": {
+      "description": "What a provenance step represents.\n\nA well-formed chain starts with at least one ``observation`` and ends with a\n``validation``. Everything between is ``processing``.",
+      "enum": [
+        "observation",
+        "processing",
+        "validation"
+      ],
+      "title": "StepKind",
+      "type": "string"
+    },
+    "ValidationFlag": {
+      "additionalProperties": false,
+      "description": "A constraint the value did not satisfy.\n\nFlags travel with the value rather than replacing it. A consumer that ignores flags\ngets a number; a consumer that reads them gets a number and the reason to discount it.",
+      "properties": {
+        "code": {
+          "description": "Stable machine-readable flag code.",
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "confidence_penalty": {
+          "default": 0.0,
+          "description": "Multiplicative reduction this flag applied to the confidence score.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence Penalty",
+          "type": "number"
+        },
+        "constraint": {
+          "description": "Identifier of the constraint that produced this flag.",
+          "minLength": 1,
+          "title": "Constraint",
+          "type": "string"
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the constraint required, in plain language.",
+          "title": "Expected"
+        },
+        "message": {
+          "description": "Plain-language explanation.",
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "observed": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The value that tripped the check.",
+          "title": "Observed"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        }
+      },
+      "required": [
+        "code",
+        "constraint",
+        "severity",
+        "message"
+      ],
+      "title": "ValidationFlag",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "aoi": {
+      "$ref": "#/$defs/ResolvedGeometry"
+    },
+    "comparisons": {
+      "items": {
+        "$ref": "#/$defs/IndicatorComparison"
+      },
+      "title": "Comparisons",
+      "type": "array"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "period_a": {
+      "$ref": "#/$defs/DateRange"
+    },
+    "period_b": {
+      "$ref": "#/$defs/DateRange"
+    },
+    "summary": {
+      "description": "Deterministic template over the comparisons above.",
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "aoi",
+    "period_a",
+    "period_b",
+    "comparisons",
+    "summary",
+    "generated_at"
+  ],
+  "title": "ComparePeriodsResponse",
+  "type": "object"
+}

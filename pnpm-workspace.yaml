@@ -1,0 +1,11 @@
+packages:
+  - core
+  - service
+  - mcp-server
+  - api
+  - console
+
+onlyBuiltDependencies:
+  - esbuild
+  - "@duckdb/node-bindings-darwin-arm64"
+  - "@duckdb/node-bindings"

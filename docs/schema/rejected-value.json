@@ -1,0 +1,353 @@
+{
+  "$defs": {
+    "DateRange": {
+      "additionalProperties": false,
+      "description": "Inclusive date range. The layer works in whole days; sub-daily is out of scope.",
+      "properties": {
+        "end": {
+          "format": "date",
+          "title": "End",
+          "type": "string"
+        },
+        "start": {
+          "format": "date",
+          "title": "Start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "DateRange",
+      "type": "object"
+    },
+    "IndicatorId": {
+      "description": "Every quantity the layer can serve.\n\nGrouped by family; the family is derivable via :func:`indicator_family`.",
+      "enum": [
+        "ndvi",
+        "ndmi",
+        "nbr",
+        "vpd_kpa",
+        "precip_30d_mm",
+        "temp_max_c",
+        "days_since_rain",
+        "soil_moisture_0_7cm",
+        "soil_moisture_7_28cm",
+        "elevation_m",
+        "slope_deg",
+        "aspect_deg",
+        "twi"
+      ],
+      "title": "IndicatorId",
+      "type": "string"
+    },
+    "JsonValue": {},
+    "ProvenanceStep": {
+      "additionalProperties": false,
+      "description": "One link in the chain.\n\nThe six fields the build prompt calls non-negotiable for an ingested record \u2014 source,\ndataset id, acquisition time, processing time, pipeline version, spatial reference \u2014\nare all here. They are optional only where the step kind makes them meaningless: a\nvalidation step has no acquisition timestamp of its own, it inherits the one carried by\nthe observation steps beneath it.",
+      "properties": {
+        "access_route": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How the data was reached, e.g. 'earth-search-v1' or 'open-meteo-archive'. Distinguishes the dataset from the intermediary that served it.",
+          "title": "Access Route"
+        },
+        "acquired_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the underlying observation was made.",
+          "title": "Acquired At"
+        },
+        "algorithm_version": {
+          "title": "Algorithm Version",
+          "type": "string"
+        },
+        "asset_ids": {
+          "description": "Scene, granule or asset identifiers consumed by this step.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Asset Ids",
+          "type": "array"
+        },
+        "dataset_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Dataset identifier, e.g. 'sentinel-2-l2a'.",
+          "title": "Dataset Id"
+        },
+        "description": {
+          "description": "Plain-language account of what this step did.",
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "index": {
+          "description": "Position in the chain, 0 first.",
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/StepKind"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "description": "Every parameter that affects the numeric output of this step.",
+          "title": "Parameters",
+          "type": "object"
+        },
+        "pipeline_version": {
+          "title": "Pipeline Version",
+          "type": "string"
+        },
+        "processed_at": {
+          "description": "When this step ran.",
+          "format": "date-time",
+          "title": "Processed At",
+          "type": "string"
+        },
+        "resolution_m": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolution M"
+        },
+        "software": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Library and version doing the work, e.g. 'rasterio 1.4.3'.",
+          "title": "Software"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Originating organisation, e.g. 'ESA/Copernicus'.",
+          "title": "Source"
+        },
+        "spatial_ref": {
+          "description": "CRS of this step's output, as an authority code, e.g. 'EPSG:32610'.",
+          "title": "Spatial Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "kind",
+        "description",
+        "processed_at",
+        "pipeline_version",
+        "algorithm_version",
+        "spatial_ref"
+      ],
+      "title": "ProvenanceStep",
+      "type": "object"
+    },
+    "Severity": {
+      "enum": [
+        "warn",
+        "error"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "StepKind": {
+      "description": "What a provenance step represents.\n\nA well-formed chain starts with at least one ``observation`` and ends with a\n``validation``. Everything between is ``processing``.",
+      "enum": [
+        "observation",
+        "processing",
+        "validation"
+      ],
+      "title": "StepKind",
+      "type": "string"
+    },
+    "ValidationFlag": {
+      "additionalProperties": false,
+      "description": "A constraint the value did not satisfy.\n\nFlags travel with the value rather than replacing it. A consumer that ignores flags\ngets a number; a consumer that reads them gets a number and the reason to discount it.",
+      "properties": {
+        "code": {
+          "description": "Stable machine-readable flag code.",
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "confidence_penalty": {
+          "default": 0.0,
+          "description": "Multiplicative reduction this flag applied to the confidence score.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence Penalty",
+          "type": "number"
+        },
+        "constraint": {
+          "description": "Identifier of the constraint that produced this flag.",
+          "minLength": 1,
+          "title": "Constraint",
+          "type": "string"
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the constraint required, in plain language.",
+          "title": "Expected"
+        },
+        "message": {
+          "description": "Plain-language explanation.",
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "observed": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The value that tripped the check.",
+          "title": "Observed"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        }
+      },
+      "required": [
+        "code",
+        "constraint",
+        "severity",
+        "message"
+      ],
+      "title": "ValidationFlag",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A value the constraint engine refused.\n\nDeliberately has no ``value`` field. A rejected measurement is reported as an absence\nwith a reason, never as a number the caller might use by accident.",
+  "properties": {
+    "claim_id": {
+      "pattern": "^clm_[0-9A-HJKMNP-TV-Z]{26}$",
+      "title": "Claim Id",
+      "type": "string"
+    },
+    "flags": {
+      "items": {
+        "$ref": "#/$defs/ValidationFlag"
+      },
+      "minItems": 1,
+      "title": "Flags",
+      "type": "array"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "geometry_hash": {
+      "minLength": 8,
+      "title": "Geometry Hash",
+      "type": "string"
+    },
+    "indicator": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IndicatorId"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "period": {
+      "$ref": "#/$defs/DateRange"
+    },
+    "provenance": {
+      "description": "Ordered chain from source observation to validated output. Never empty \u2014 a value without provenance cannot be constructed.",
+      "items": {
+        "$ref": "#/$defs/ProvenanceStep"
+      },
+      "minItems": 1,
+      "title": "Provenance",
+      "type": "array"
+    },
+    "reason": {
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "validation_status": {
+      "const": "rejected",
+      "default": "rejected",
+      "title": "Validation Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "claim_id",
+    "reason",
+    "flags",
+    "provenance",
+    "geometry_hash",
+    "period",
+    "generated_at"
+  ],
+  "title": "RejectedValue",
+  "type": "object"
+}

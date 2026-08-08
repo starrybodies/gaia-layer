@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # CI never reaches the network for Earth observation data. Tests run against fixtures.
+  GAIA_OFFLINE: "1"
+
+jobs:
+  python:
+    name: pipeline (lint, types, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Sync dependencies
+        working-directory: pipeline
+        run: uv sync --all-extras
+      - name: Lint
+        working-directory: pipeline
+        run: |
+          uv run ruff check src tests
+          uv run ruff format --check src tests
+      - name: Type-check
+        working-directory: pipeline
+        run: uv run mypy src
+      - name: Test
+        working-directory: pipeline
+        run: uv run pytest --cov=gaia_pipeline --cov-report=term-missing
+
+  typescript:
+    name: services (lint, types, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  schema-drift:
+    name: generated schemas are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - working-directory: pipeline
+        run: uv sync --all-extras
+      - name: Regenerate and diff
+        run: make schema-check
+
+  provenance-guard:
+    name: no number leaves without provenance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - working-directory: pipeline
+        run: uv sync --all-extras
+      # Walks every recorded service response and fails if any object carrying a `value`
+      # lacks a provenance chain, a validation status, a confidence, or a method. This is
+      # the whitepaper's second lesson wired into the build.
+      - name: Guard
+        run: |
+          pnpm run build:libs
+          pnpm --filter @gaia/core test
+          cd pipeline && uv run pytest tests/test_provenance_guard.py -v

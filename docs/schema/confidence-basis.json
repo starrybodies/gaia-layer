@@ -1,0 +1,109 @@
+{
+  "$defs": {
+    "ConfidenceComponent": {
+      "additionalProperties": false,
+      "description": "One named input to the confidence score, kept separate so the score decomposes.",
+      "properties": {
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "value": {
+          "description": "Component score, 1.0 being ideal.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Value",
+          "type": "number"
+        },
+        "weight": {
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "weight",
+        "description"
+      ],
+      "title": "ConfidenceComponent",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "How the confidence score was arrived at.\n\nv0.1 keeps this deliberately simple, as the build prompt directs: composite pixel\ncount, cloud fraction, and sensor revisit gap. The structure admits more components\nlater without changing the envelope shape.",
+  "properties": {
+    "aggregation": {
+      "default": "weighted_arithmetic_mean",
+      "description": "How components combine into the score.",
+      "title": "Aggregation",
+      "type": "string"
+    },
+    "cloud_fraction": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Mean cloud fraction across contributing scenes.",
+      "title": "Cloud Fraction"
+    },
+    "components": {
+      "items": {
+        "$ref": "#/$defs/ConfidenceComponent"
+      },
+      "minItems": 1,
+      "title": "Components",
+      "type": "array"
+    },
+    "observation_count": {
+      "description": "Number of source observations composited into this value.",
+      "minimum": 0,
+      "title": "Observation Count",
+      "type": "integer"
+    },
+    "revisit_gap_days": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Longest gap between contributing observations.",
+      "title": "Revisit Gap Days"
+    },
+    "spatial_coverage": {
+      "description": "Fraction of the geometry with a valid observation.",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Spatial Coverage",
+      "type": "number"
+    }
+  },
+  "required": [
+    "observation_count",
+    "spatial_coverage",
+    "components"
+  ],
+  "title": "ConfidenceBasis",
+  "type": "object"
+}

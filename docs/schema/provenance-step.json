@@ -1,0 +1,160 @@
+{
+  "$defs": {
+    "JsonValue": {},
+    "StepKind": {
+      "description": "What a provenance step represents.\n\nA well-formed chain starts with at least one ``observation`` and ends with a\n``validation``. Everything between is ``processing``.",
+      "enum": [
+        "observation",
+        "processing",
+        "validation"
+      ],
+      "title": "StepKind",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One link in the chain.\n\nThe six fields the build prompt calls non-negotiable for an ingested record \u2014 source,\ndataset id, acquisition time, processing time, pipeline version, spatial reference \u2014\nare all here. They are optional only where the step kind makes them meaningless: a\nvalidation step has no acquisition timestamp of its own, it inherits the one carried by\nthe observation steps beneath it.",
+  "properties": {
+    "access_route": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "How the data was reached, e.g. 'earth-search-v1' or 'open-meteo-archive'. Distinguishes the dataset from the intermediary that served it.",
+      "title": "Access Route"
+    },
+    "acquired_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "When the underlying observation was made.",
+      "title": "Acquired At"
+    },
+    "algorithm_version": {
+      "title": "Algorithm Version",
+      "type": "string"
+    },
+    "asset_ids": {
+      "description": "Scene, granule or asset identifiers consumed by this step.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Asset Ids",
+      "type": "array"
+    },
+    "dataset_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Dataset identifier, e.g. 'sentinel-2-l2a'.",
+      "title": "Dataset Id"
+    },
+    "description": {
+      "description": "Plain-language account of what this step did.",
+      "minLength": 1,
+      "title": "Description",
+      "type": "string"
+    },
+    "index": {
+      "description": "Position in the chain, 0 first.",
+      "minimum": 0,
+      "title": "Index",
+      "type": "integer"
+    },
+    "kind": {
+      "$ref": "#/$defs/StepKind"
+    },
+    "parameters": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "description": "Every parameter that affects the numeric output of this step.",
+      "title": "Parameters",
+      "type": "object"
+    },
+    "pipeline_version": {
+      "title": "Pipeline Version",
+      "type": "string"
+    },
+    "processed_at": {
+      "description": "When this step ran.",
+      "format": "date-time",
+      "title": "Processed At",
+      "type": "string"
+    },
+    "resolution_m": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resolution M"
+    },
+    "software": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Library and version doing the work, e.g. 'rasterio 1.4.3'.",
+      "title": "Software"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Originating organisation, e.g. 'ESA/Copernicus'.",
+      "title": "Source"
+    },
+    "spatial_ref": {
+      "description": "CRS of this step's output, as an authority code, e.g. 'EPSG:32610'.",
+      "title": "Spatial Ref",
+      "type": "string"
+    }
+  },
+  "required": [
+    "index",
+    "kind",
+    "description",
+    "processed_at",
+    "pipeline_version",
+    "algorithm_version",
+    "spatial_ref"
+  ],
+  "title": "ProvenanceStep",
+  "type": "object"
+}

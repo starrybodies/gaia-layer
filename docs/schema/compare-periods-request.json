@@ -1,0 +1,200 @@
+{
+  "$defs": {
+    "BBox": {
+      "additionalProperties": false,
+      "description": "Axis-aligned bounding box in WGS84 degrees.",
+      "properties": {
+        "east": {
+          "maximum": 180.0,
+          "minimum": -180.0,
+          "title": "East",
+          "type": "number"
+        },
+        "north": {
+          "maximum": 90.0,
+          "minimum": -90.0,
+          "title": "North",
+          "type": "number"
+        },
+        "south": {
+          "maximum": 90.0,
+          "minimum": -90.0,
+          "title": "South",
+          "type": "number"
+        },
+        "west": {
+          "maximum": 180.0,
+          "minimum": -180.0,
+          "title": "West",
+          "type": "number"
+        }
+      },
+      "required": [
+        "west",
+        "south",
+        "east",
+        "north"
+      ],
+      "title": "BBox",
+      "type": "object"
+    },
+    "DateRange": {
+      "additionalProperties": false,
+      "description": "Inclusive date range. The layer works in whole days; sub-daily is out of scope.",
+      "properties": {
+        "end": {
+          "format": "date",
+          "title": "End",
+          "type": "string"
+        },
+        "start": {
+          "format": "date",
+          "title": "Start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "DateRange",
+      "type": "object"
+    },
+    "IndicatorId": {
+      "description": "Every quantity the layer can serve.\n\nGrouped by family; the family is derivable via :func:`indicator_family`.",
+      "enum": [
+        "ndvi",
+        "ndmi",
+        "nbr",
+        "vpd_kpa",
+        "precip_30d_mm",
+        "temp_max_c",
+        "days_since_rain",
+        "soil_moisture_0_7cm",
+        "soil_moisture_7_28cm",
+        "elevation_m",
+        "slope_deg",
+        "aspect_deg",
+        "twi"
+      ],
+      "title": "IndicatorId",
+      "type": "string"
+    },
+    "MultiPolygon": {
+      "additionalProperties": false,
+      "properties": {
+        "coordinates": {
+          "items": {
+            "items": {
+              "items": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 2,
+                "type": "array"
+              },
+              "minItems": 4,
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "minItems": 1,
+          "title": "Coordinates",
+          "type": "array"
+        },
+        "type": {
+          "const": "MultiPolygon",
+          "default": "MultiPolygon",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "coordinates"
+      ],
+      "title": "MultiPolygon",
+      "type": "object"
+    },
+    "Polygon": {
+      "additionalProperties": false,
+      "description": "GeoJSON Polygon, WGS84 lon/lat, per RFC 7946.",
+      "properties": {
+        "coordinates": {
+          "items": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 2,
+              "type": "array"
+            },
+            "minItems": 4,
+            "type": "array"
+          },
+          "minItems": 1,
+          "title": "Coordinates",
+          "type": "array"
+        },
+        "type": {
+          "const": "Polygon",
+          "default": "Polygon",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "coordinates"
+      ],
+      "title": "Polygon",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "geometry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Polygon"
+        },
+        {
+          "$ref": "#/$defs/MultiPolygon"
+        },
+        {
+          "$ref": "#/$defs/BBox"
+        }
+      ],
+      "title": "Geometry"
+    },
+    "indicators": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/IndicatorId"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Indicators"
+    },
+    "period_a": {
+      "$ref": "#/$defs/DateRange"
+    },
+    "period_b": {
+      "$ref": "#/$defs/DateRange"
+    }
+  },
+  "required": [
+    "geometry",
+    "period_a",
+    "period_b"
+  ],
+  "title": "ComparePeriodsRequest",
+  "type": "object"
+}

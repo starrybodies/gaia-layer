@@ -1,0 +1,103 @@
+{
+  "$defs": {
+    "IndicatorFamily": {
+      "enum": [
+        "spectral",
+        "climate",
+        "soil",
+        "terrain"
+      ],
+      "title": "IndicatorFamily",
+      "type": "string"
+    },
+    "IndicatorId": {
+      "description": "Every quantity the layer can serve.\n\nGrouped by family; the family is derivable via :func:`indicator_family`.",
+      "enum": [
+        "ndvi",
+        "ndmi",
+        "nbr",
+        "vpd_kpa",
+        "precip_30d_mm",
+        "temp_max_c",
+        "days_since_rain",
+        "soil_moisture_0_7cm",
+        "soil_moisture_7_28cm",
+        "elevation_m",
+        "slope_deg",
+        "aspect_deg",
+        "twi"
+      ],
+      "title": "IndicatorId",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "family": {
+      "$ref": "#/$defs/IndicatorFamily"
+    },
+    "first_period_start": {
+      "format": "date",
+      "title": "First Period Start",
+      "type": "string"
+    },
+    "flagged_count": {
+      "minimum": 0,
+      "title": "Flagged Count",
+      "type": "integer"
+    },
+    "indicator": {
+      "$ref": "#/$defs/IndicatorId"
+    },
+    "last_period_end": {
+      "format": "date",
+      "title": "Last Period End",
+      "type": "string"
+    },
+    "mean_confidence": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Mean Confidence",
+      "type": "number"
+    },
+    "period_count": {
+      "minimum": 0,
+      "title": "Period Count",
+      "type": "integer"
+    },
+    "rejected_count": {
+      "minimum": 0,
+      "title": "Rejected Count",
+      "type": "integer"
+    },
+    "source": {
+      "title": "Source",
+      "type": "string"
+    },
+    "unit": {
+      "title": "Unit",
+      "type": "string"
+    },
+    "validated_count": {
+      "minimum": 0,
+      "title": "Validated Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "indicator",
+    "family",
+    "unit",
+    "first_period_start",
+    "last_period_end",
+    "period_count",
+    "mean_confidence",
+    "validated_count",
+    "flagged_count",
+    "rejected_count",
+    "source"
+  ],
+  "title": "IndicatorCoverage",
+  "type": "object"
+}
