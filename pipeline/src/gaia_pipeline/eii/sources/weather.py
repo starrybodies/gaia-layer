@@ -328,6 +328,13 @@ def noon_weather(lat: float, lon: float, start: date, end: date) -> tuple[pa.Tab
     The FWI System is defined on a single daily observation taken at noon LST, not on daily
     means. A mean would understate afternoon drying, which is the part of the day that
     carries fire, so the hourly archive is queried and 12:00 is taken from it.
+
+    The model is left to Open-Meteo's default rather than pinned to ERA5-Land. ERA5-Land is
+    a land-surface reanalysis and does not carry 10 m wind: pinning it returns nulls for
+    wind, which silently takes FFMC, ISI and FWI with it while DMC, DC and BUI — the three
+    codes that do not use wind — come back looking perfectly healthy. That asymmetry is what
+    exposed it. Reanalysis wind at this resolution is a coarse input to a coarse index, and
+    the provenance records which product answered.
     """
     payload = _get(
         {
@@ -337,7 +344,6 @@ def noon_weather(lat: float, lon: float, start: date, end: date) -> tuple[pa.Tab
             "end_date": end.isoformat(),
             "hourly": "temperature_2m,relative_humidity_2m,wind_speed_10m,precipitation",
             "timezone": "America/Vancouver",
-            "models": "era5_land",
         }
     )
 
@@ -371,7 +377,7 @@ def noon_weather(lat: float, lon: float, start: date, end: date) -> tuple[pa.Tab
 
     source = SourceRecord(
         dataset="ERA5-Land",
-        version="open-meteo archive",
+        version="open-meteo archive (ERA5 family; ERA5-Land carries no 10 m wind)",
         access_route="open-meteo-archive",
         uri=f"{ARCHIVE_URL}?latitude={lat}&longitude={lon}&models=era5_land",
         citation=(
