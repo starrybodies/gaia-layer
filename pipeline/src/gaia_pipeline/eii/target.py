@@ -48,6 +48,11 @@ MINIMUM_MEASURED_FRACTION = 0.5
 #: scene is an observation; three is a composite that can survive an undetected cloud.
 MINIMUM_SCENES = 2
 
+#: Fires smaller than this contribute two or three whole cells and cost a full imagery read
+#: each. The floor is a compute decision rather than a scientific one, so it is a parameter,
+#: it is counted in the exclusions, and the report states how much burned area it left out.
+MINIMUM_FIRE_HA = 200.0
+
 
 @dataclass(frozen=True)
 class LabelSet:
@@ -112,6 +117,7 @@ def severity_labels(
     *,
     minimum_burned: float = MINIMUM_BURNED_FRACTION,
     minimum_measured: float = MINIMUM_MEASURED_FRACTION,
+    minimum_fire_ha: float = MINIMUM_FIRE_HA,
 ) -> LabelSet:
     """Per-cell high-severity labels for every fire year, with the exclusions counted."""
     rows: dict[str, list[Any]] = {
@@ -130,6 +136,8 @@ def severity_labels(
         "unmeasured_cells": 0,
         "fires_without_imagery": 0,
         "fires_outside_area": 0,
+        "fires_below_size_floor": 0,
+        "hectares_below_size_floor": 0,
     }
     seen: dict[str, int] = {}
     cell_ids = spine.cells.column("h3").to_pylist()
@@ -142,6 +150,11 @@ def severity_labels(
             continue
 
         for perimeter in perimeters:
+            if perimeter.area_ha < minimum_fire_ha:
+                excluded["fires_below_size_floor"] += 1
+                excluded["hectares_below_size_floor"] += int(perimeter.area_ha)
+                continue
+
             burned = nbac.burned_fraction([perimeter], spine)
             inside = burned >= minimum_burned
             partial = (burned > 0.0) & ~inside

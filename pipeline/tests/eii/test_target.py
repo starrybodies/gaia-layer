@@ -34,11 +34,11 @@ def spine(tmp_path_factory):
 
 
 class FakePerimeter:
-    def __init__(self, fire_id: str, geometry=None) -> None:
+    def __init__(self, fire_id: str, geometry=None, area_ha: float = 1000.0) -> None:
         self.fire_id = fire_id
         self.geometry = geometry
         self.year = 2023
-        self.area_ha = 1000.0
+        self.area_ha = area_ha
 
 
 def window_for(spine, value: float, *, pre: int = 4, post: int = 4) -> SeverityWindow:
@@ -167,7 +167,21 @@ class TestRefusals:
             "unmeasured_cells",
             "fires_without_imagery",
             "fires_outside_area",
+            "fires_below_size_floor",
+            "hectares_below_size_floor",
         }
+
+    def test_a_fire_below_the_size_floor_is_skipped_and_its_hectares_counted(
+        self, spine, wiring
+    ) -> None:
+        """A compute decision, so it is counted in hectares rather than just in fires."""
+        wiring["perimeters"] = [FakePerimeter("2023_tiny", area_ha=40.0)]
+
+        labels = severity_labels(spine, (2023,))
+
+        assert labels.table.num_rows == 0
+        assert labels.excluded["fires_below_size_floor"] == 1
+        assert labels.excluded["hectares_below_size_floor"] == 40
 
 
 class TestReburns:
