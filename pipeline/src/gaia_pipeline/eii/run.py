@@ -8,7 +8,9 @@ after a network wobble is a pipeline nobody finishes.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pyarrow as pa
@@ -117,12 +119,9 @@ def build_features(spine: Spine, labels: pa.Table) -> pa.Table:
         log.info("features already assembled")
         return pq.read_table(path)
 
-    log.info("terrain")
-    terrain, _ = features.terrain_features(spine)
-    log.info("fuel type")
-    fuel, _ = features.fuel_features(spine)
-    log.info("structure")
-    structure, _ = features.structure_features(spine)
+    terrain = _cached_columns("terrain", spine, features.terrain_features)
+    fuel = _cached_columns("fuel", spine, features.fuel_features)
+    structure = _cached_table("structure", spine, features.structure_features)
 
     log.info("fire weather")
     weather: dict[str, dict[str, float]] = {}
@@ -177,3 +176,43 @@ def run_gate(spine: Spine, features_table: pa.Table, *, n_folds: int = 5, seed: 
     )
     log.info("gate %s; report at %s", "PASSED" if result.gate_passes else "FAILED", path)
     return path
+
+
+def _cached_columns(
+    name: str, spine: Spine, build: Callable[[Spine], tuple[dict[str, np.ndarray], list[Any]]]
+) -> dict[str, np.ndarray]:
+    """A per-cell column group, cached so a long assembly can be resumed.
+
+    Each group costs minutes of inventory fetching and none of them depend on the labels, so
+    a failure in one should not throw away the others.
+    """
+    path = archive_dir() / f"{name}.parquet"
+    if path.exists():
+        log.info("%s already built", name)
+        table = pq.read_table(path)
+        return {column: np.asarray(table.column(column)) for column in table.column_names}
+
+    log.info("building %s", name)
+    columns, _ = build(spine)
+    pq.write_table(
+        pa.table(
+            {key: pa.array(np.asarray(value), pa.float32()) for key, value in columns.items()}
+        ),
+        path,
+        compression="zstd",
+    )
+    return columns
+
+
+def _cached_table(
+    name: str, spine: Spine, build: Callable[[Spine], tuple[pa.Table, list[Any]]]
+) -> pa.Table:
+    path = archive_dir() / f"{name}.parquet"
+    if path.exists():
+        log.info("%s already built", name)
+        return pq.read_table(path)
+
+    log.info("building %s", name)
+    table, _ = build(spine)
+    pq.write_table(table, path, compression="zstd")
+    return table
