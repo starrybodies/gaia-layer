@@ -161,3 +161,101 @@ would turn one label into a change detection. That is a different indicator with
 different validation story, not a version bump on this one.
 
 **Raised:** 2026-08-09 · **Status:** accepted for v0.1, limitation stated in the layer note
+
+---
+
+## D-008 — Canopy height comes from GLAD, not ETH
+
+**Specified:** ETH's 10 m global canopy height (GEDI + Sentinel-2 fused) for Component A.
+
+**Reality:** The documented host, `share.phys.ethz.ch/~pf/nlangdata/`, redirects to a DOI
+that returns 403 to any non-browser client. A Nextcloud file-share link still serves the
+tiles, but it is a personal share that has already moved once.
+
+**Built:** GLAD/Potapov 2019 forest canopy height, 30 m, North America mosaic, over anonymous
+HTTPS with working range requests. It is native 30 m, which is the analysis grid exactly, so
+the read is like-for-like rather than a downsample. The mosaic is strip-organised rather than
+tiled, so a window read pulls full continental scanlines — affordable because it happens once
+for a single epoch.
+
+**To close:** If ETH republishes at a stable URL, 10 m would resolve structure inside a hex
+rather than across it. The flag-handling would need rewriting; ETH uses a different nodata
+convention.
+
+**Raised:** 2026-08-10 · **Status:** accepted
+
+---
+
+## D-009 — Burn severity comes from Sentinel-2, because Landsat's bucket is Requester Pays
+
+**Specified:** Landsat Collection 2 Level 2 through Earth Search, anonymous.
+
+**Reality:** Earth Search catalogues `landsat-c2-l2` anonymously and its assets are not
+anonymous. Every href points at `usgs-landsat.s3`, which is Requester Pays: 403 without AWS
+credentials, billed with them. Recon checked that the collection existed and did not check
+that an asset could be read, which is the difference that mattered. The first full labelling
+run produced zero labels for 2023 before this was found.
+
+**Built:** Sentinel-2 L2A through Earth Search, which is genuinely anonymous and is the route
+v0.1 already uses. NBR from B8A and B12, both native 20 m — finer than the 30 m planned —
+with the scene classification band for cloud, shadow, snow and water masking.
+
+The reflectance offset introduced with processing baseline 04.00 is handled explicitly: NBR
+is a normalised difference, so a common additive offset does not cancel, and reading a 2023
+scene with the pre-2022 convention would shift every severity value rather than failing.
+
+**Residual limitation:** Sentinel-2B launched in March 2017. A pre-fire season for a 2017
+fire rests on a single satellite at a ten-day repeat, and 2015 and 2016 fire years are not
+usable at all. The archive reports which years it has rather than interpolating across the
+ones it does not.
+
+**To close:** Microsoft's Planetary Computer serves Landsat Collection 2 with an anonymous
+SAS token and would restore the full decade. It adds a token-refresh dependency on a third
+party, which was judged the worse trade for a first pass.
+
+**Raised:** 2026-08-10 · **Status:** accepted, coverage limitation documented
+
+---
+
+## D-010 — Fire weather codes are computed, and differ from CWFIS in a known way
+
+**Specified:** CFFDRS codes from CWFIS or the `cffdrs` package.
+
+**Reality:** CWFIS publishes FWI grids for the current day only; there is no downloadable
+gridded archive for 2015-2024. Nothing on PyPI computes the codes — `PyFWI` is seismic
+full-waveform inversion, `fwi` is an empty 0.0.0 placeholder — the reference implementation
+is R, and NRCan's own Python code implements the next-generation hourly system, which needs
+hourly weather this build does not have.
+
+**Built:** The Van Wagner and Pickett (1985) equations, in Python, validated against CWFIS's
+own station archive, which publishes observed weather alongside the codes CWFIS computed from
+it. Over ten station-seasons at five Okanagan stations in 2021 and 2023: Drought Code within
+0.7 units across a whole season, FFMC within 4.5, ISI within 0.8, FWI within 3.
+
+**Known difference:** Duff Moisture Code runs up to 23% above the CWFIS series, carried into
+BUI. Fitting the day-length factor back out of CWFIS's own increments reproduces the
+published table from July onward and falls short only in April and May, which is when CWFIS
+suspends code advance for snow on the ground. Their series encodes an operational policy;
+this one encodes the published specification. The tests pin both the magnitude and the rank
+correlation so the difference cannot grow quietly.
+
+**Raised:** 2026-08-10 · **Status:** accepted, difference quantified
+
+---
+
+## D-011 — BCGW's WFS is paged spatially, because `startIndex` does not work
+
+**Specified:** Standard WFS paging for the provincial inventory layers.
+
+**Reality:** Four of the five layers used here — VRI and all three Freshwater Atlas layers —
+return 504 after sixty seconds for any request carrying `startIndex`, with or without
+`sortBy`. The identical request without it returns in 0.3 s. VRI additionally refuses natural
+ordering: *"Cannot do natural order without a primary key."* Only BEC has a primary key and
+pages normally.
+
+**Built:** Spatial paging. Request a bounding box; if `numberMatched` exceeds
+`numberReturned`, quarter the box and recurse, with a depth floor below which the tile is
+fetched whole. Feature ids are minted per request for the keyless layers, so the same polygon
+fetched from two overlapping boxes has no id in common — deduplication is by content hash.
+
+**Raised:** 2026-08-10 · **Status:** accepted; this is how the service works
