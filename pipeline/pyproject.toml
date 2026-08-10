@@ -18,6 +18,8 @@ dependencies = [
     "rich>=13.8",
     "python-ulid>=2.7",
     "tenacity>=9.0",
+    "h3>=4.5.0",
+    "scikit-learn>=1.9.0",
 ]
 
 [project.scripts]
