@@ -26,6 +26,7 @@ no account. NBR is (NIR - SWIR2) / (NIR + SWIR2).
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
 
@@ -49,6 +50,11 @@ COLLECTION = "landsat-c2-l2"
 NIR_ASSET = "nir08"
 SWIR2_ASSET = "swir22"
 QA_ASSET = "qa_pixel"
+
+#: Scenes are read concurrently. The work is almost entirely waiting on HTTP range requests
+#: and GDAL releases the GIL while it does that, so threads are the right tool and the
+#: ceiling is the server's patience rather than the CPU.
+SCENE_WORKERS = 8
 
 #: Growing-season window. Late enough that snow has gone from the valleys, early enough that
 #: it closes before autumn senescence starts moving NBR for reasons that are not fire.
@@ -167,12 +173,11 @@ def _composite_nbr(
     Median rather than mean: one undetected cloud edge in a short season would drag a mean
     somewhere the ground never went, and the QA mask does not catch everything.
     """
-    stack: list[np.ndarray] = []
 
-    for item in items:
+    def nbr_for(item: Item) -> np.ndarray | None:
         assets = item.assets
         if NIR_ASSET not in assets or SWIR2_ASSET not in assets:
-            continue
+            return None
         try:
             nir = _read_asset(
                 assets[NIR_ASSET].href,
@@ -195,7 +200,7 @@ def _composite_nbr(
             )
         except Exception as error:  # a single unreadable scene must not lose the fire
             log.warning("skipping %s: %s", item.id, error)
-            continue
+            return None
 
         nir = nir * REFLECTANCE_SCALE + REFLECTANCE_OFFSET
         swir = swir * REFLECTANCE_SCALE + REFLECTANCE_OFFSET
@@ -204,8 +209,10 @@ def _composite_nbr(
         with np.errstate(invalid="ignore", divide="ignore"):
             nbr = np.where(clear, (nir - swir) / (nir + swir), np.nan)
 
-        if np.isfinite(nbr).any():
-            stack.append(nbr.astype("float32"))
+        return nbr.astype("float32") if np.isfinite(nbr).any() else None
+
+    with ThreadPoolExecutor(max_workers=SCENE_WORKERS) as pool:
+        stack = [surface for surface in pool.map(nbr_for, items) if surface is not None]
 
     if not stack:
         return np.full(shape, np.nan, dtype="float32"), 0
