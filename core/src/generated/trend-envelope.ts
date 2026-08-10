@@ -104,6 +104,8 @@ export const TrendEnvelopeSchema = z
         "slope_deg",
         "aspect_deg",
         "twi",
+        "heat_load",
+        "land_cover",
       ])
       .describe(
         "Every quantity the layer can serve.\n\nGrouped by family; the family is derivable via :func:`indicator_family`.",

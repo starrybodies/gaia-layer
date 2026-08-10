@@ -26,7 +26,7 @@ export const CoverageResponseSchema = z
           indicators: z.array(
             z
               .object({
-                family: z.enum(["spectral", "climate", "soil", "terrain"]),
+                family: z.enum(["spectral", "climate", "soil", "terrain", "land_cover"]),
                 first_period_start: z.string().date(),
                 flagged_count: z.number().int().gte(0),
                 indicator: z
@@ -44,6 +44,8 @@ export const CoverageResponseSchema = z
                     "slope_deg",
                     "aspect_deg",
                     "twi",
+                    "heat_load",
+                    "land_cover",
                   ])
                   .describe(
                     "Every quantity the layer can serve.\n\nGrouped by family; the family is derivable via :func:`indicator_family`.",

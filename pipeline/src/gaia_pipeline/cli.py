@@ -114,6 +114,11 @@ def ingest_all(
     console.rule("[bold]Terrain")
     ingest_terrain(aoi, force=force)
 
+    console.rule("[bold]Land cover")
+    from .ingest.landcover import ingest as ingest_landcover
+
+    ingest_landcover(aoi, force=force)
+
     console.rule("[bold]Climate and soil moisture")
     ingest_climate(aoi, *window, force=force)
 
@@ -121,6 +126,11 @@ def ingest_all(
     console.rule("[bold]Wildfire substrate score")
     scored = ingest_substrate(aoi, *window, force=force)
     console.print(f"[green]done[/green] {scored} monthly substrate scores")
+
+    console.rule("[bold]Map cells")
+    from .cells import rebuild as rebuild_cells
+
+    console.print(f"[green]done[/green] {len(rebuild_cells(aoi))} cell layers")
 
 
 @app.command("seed")

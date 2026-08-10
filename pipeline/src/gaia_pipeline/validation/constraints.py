@@ -62,6 +62,8 @@ BOUNDS: Mapping[IndicatorId, Bounds] = {
     IndicatorId.SLOPE_DEG: Bounds(0.0, 90.0, 0.0, 75.0, "angle from horizontal"),
     IndicatorId.ASPECT_DEG: Bounds(0.0, 360.0, 0.0, 360.0, "compass bearing"),
     IndicatorId.TWI: Bounds(-10.0, 40.0, 0.0, 25.0, "log of contributing area over slope"),
+    IndicatorId.HEAT_LOAD: Bounds(0.0, 1.6, 0.1, 1.2, "normalised potential annual heat load"),
+    IndicatorId.LAND_COVER: Bounds(10.0, 100.0, 10.0, 100.0, "ESA WorldCover class code"),
 }
 
 
@@ -107,6 +109,8 @@ STATIC_INDICATORS: frozenset[IndicatorId] = frozenset(
         IndicatorId.SLOPE_DEG,
         IndicatorId.ASPECT_DEG,
         IndicatorId.TWI,
+        IndicatorId.HEAT_LOAD,
+        IndicatorId.LAND_COVER,
     }
 )
 

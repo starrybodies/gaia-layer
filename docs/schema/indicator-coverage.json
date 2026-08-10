@@ -5,7 +5,8 @@
         "spectral",
         "climate",
         "soil",
-        "terrain"
+        "terrain",
+        "land_cover"
       ],
       "title": "IndicatorFamily",
       "type": "string"
@@ -25,7 +26,9 @@
         "elevation_m",
         "slope_deg",
         "aspect_deg",
-        "twi"
+        "twi",
+        "heat_load",
+        "land_cover"
       ],
       "title": "IndicatorId",
       "type": "string"

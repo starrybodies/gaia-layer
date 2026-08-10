@@ -48,6 +48,9 @@ CELL_SIZE_M = 500.0
 #: measured indicator, and so a reader can tell at a glance that they are computed.
 SUBSTRATE_LAYER = "substrate_score"
 ANOMALY_SUFFIX = "_departure"
+ANNUAL_MIN_SUFFIX = "_annual_min"
+AMPLITUDE_SUFFIX = "_amplitude"
+DNBR_LAYER = "dnbr"
 
 #: Indicators worth a departure layer. Terrain does not change, and a departure from normal
 #: is meaningless for a quantity with no normal.
@@ -93,6 +96,32 @@ class CellGrid:
         out[:, :, 2] = lon[: self.rows, self.cols :]  # east
         out[:, :, 3] = lat[: self.rows, self.cols :]  # north
         return out
+
+    def majority(self, values: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Most common class per cell, for categorical layers.
+
+        Averaging class codes would be meaningless — the mean of grassland and built-up is
+        shrubland, which is a real class and the wrong answer.
+        """
+        trimmed = values[: self.rows * self.block, : self.cols * self.block]
+        keep = mask[: self.rows * self.block, : self.cols * self.block]
+        masked = np.where(keep & np.isfinite(trimmed), trimmed, np.nan)
+        blocks = masked.reshape(self.rows, self.block, self.cols, self.block)
+        flat = blocks.transpose(0, 2, 1, 3).reshape(self.rows, self.cols, -1)
+
+        out = np.full((self.rows, self.cols), np.nan, dtype="float32")
+        share = np.zeros((self.rows, self.cols), dtype="float32")
+        for r in range(self.rows):
+            for c in range(self.cols):
+                sample = flat[r, c]
+                sample = sample[np.isfinite(sample)]
+                if sample.size == 0:
+                    continue
+                codes, counts = np.unique(sample.astype(int), return_counts=True)
+                winner = int(np.argmax(counts))
+                out[r, c] = float(codes[winner])
+                share[r, c] = counts[winner] / float(self.block * self.block)
+        return out, share
 
     def aggregate(self, values: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Block-mean a full-resolution raster onto the cell grid.
@@ -243,7 +272,12 @@ def rebuild(aoi: AreaOfInterest, *, db_path: Path | None = None) -> dict[str, in
             array = read_cog(path)
             cache[(indicator, period_start)] = array
 
-            means, fraction = cells.aggregate(array, land)
+            # Land cover is a set of labels, not a quantity.
+            means, fraction = (
+                cells.majority(array, land)
+                if indicator == "land_cover"
+                else cells.aggregate(array, land)
+            )
             count = _write_layer(
                 conn,
                 means,
@@ -304,6 +338,87 @@ def rebuild(aoi: AreaOfInterest, *, db_path: Path | None = None) -> dict[str, in
                 )
                 written[layer] = written.get(layer, 0) + count
 
+        # ------------------------------------------------------ temporal aggregates
+        #
+        # Every other layer answers "how is it now". These answer "how bad does it get",
+        # which is the question that bears on fire. Both come free from the monthly stack
+        # already read above.
+        for indicator in DEPARTURE_INDICATORS:
+            series = sorted(
+                (period, array)
+                for (name, period), array in cache.items()
+                if name == indicator.value
+            )
+            if len(series) < 6:
+                continue
+
+            stack = np.stack([array for _, array in series], axis=0)
+            with np.errstate(invalid="ignore"):
+                worst = np.nanmin(stack, axis=0)
+                best = np.nanmax(stack, axis=0)
+
+            anchor = conn.execute(
+                """
+                SELECT value_id, period_start, period_end, confidence FROM indicator_value
+                WHERE aoi_id = ? AND indicator = ? ORDER BY period_start DESC LIMIT 1
+                """,
+                [aoi.aoi_id, indicator.value],
+            ).fetchone()
+            if anchor is None:
+                continue
+
+            for suffix, surface in (
+                (ANNUAL_MIN_SUFFIX, worst),
+                (AMPLITUDE_SUFFIX, best - worst),
+            ):
+                layer = f"{indicator.value}{suffix}"
+                means, fraction = cells.aggregate(surface, land)
+                written[layer] = written.get(layer, 0) + _write_layer(
+                    conn,
+                    means,
+                    fraction,
+                    cells,
+                    bounds,
+                    value_id=anchor[0],
+                    aoi_id=aoi.aoi_id,
+                    indicator=layer,
+                    period=(anchor[1], anchor[2]),
+                    confidence=float(anchor[3]),
+                )
+
+        # ---------------------------------------------------------------- disturbance
+        #
+        # Differenced NBR between the first and last month in the record. This is the
+        # actual burn-severity product; standing NBR is only its input. Over a twelve-month
+        # window it mostly shows harvest rather than fire, which is still the disturbance
+        # that changed the fuel.
+        nbr_series = sorted(
+            (period, array) for (name, period), array in cache.items() if name == "nbr"
+        )
+        if len(nbr_series) >= 12:
+            anchor = conn.execute(
+                """
+                SELECT value_id, period_start, period_end, confidence FROM indicator_value
+                WHERE aoi_id = ? AND indicator = 'nbr' ORDER BY period_start DESC LIMIT 1
+                """,
+                [aoi.aoi_id],
+            ).fetchone()
+            if anchor is not None:
+                dnbr = nbr_series[0][1] - nbr_series[-1][1]
+                means, fraction = cells.aggregate(dnbr, land)
+                written[DNBR_LAYER] = written.get(DNBR_LAYER, 0) + _write_layer(
+                    conn,
+                    means,
+                    fraction,
+                    cells,
+                    bounds,
+                    value_id=anchor[0],
+                    aoi_id=aoi.aoi_id,
+                    indicator=DNBR_LAYER,
+                    period=(anchor[1], anchor[2]),
+                    confidence=float(anchor[3]),
+                )
+
         # -------------------------------------------------------- substrate per cell
         #
         # The composite, computed pixel by pixel instead of once for the whole area.
@@ -326,10 +441,12 @@ def rebuild(aoi: AreaOfInterest, *, db_path: Path | None = None) -> dict[str, in
             weight_present = 0.0
 
             for spec in COMPONENTS:
-                array = _component_array(conn, cache, aoi, spec.indicator, period_start, ghash)
-                if array is None:
+                component = _component_array(conn, cache, aoi, spec.indicator, period_start, ghash)
+                if component is None:
                     continue
-                normalised = np.clip((array - spec.benign) / (spec.severe - spec.benign), 0.0, 1.0)
+                normalised = np.clip(
+                    (component - spec.benign) / (spec.severe - spec.benign), 0.0, 1.0
+                )
                 surface = surface + np.nan_to_num(normalised, nan=0.0) * spec.weight
                 weight_present += spec.weight
 

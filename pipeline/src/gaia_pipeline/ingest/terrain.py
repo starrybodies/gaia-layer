@@ -17,8 +17,10 @@ from pystac_client import Client
 from ..config import AreaOfInterest, geometry_hash, settings
 from ..grid import AnalysisGrid, grid_for
 from ..indices.terrain import (
+    HEAT_LOAD_METHOD,
     SLOPE_METHOD,
     TWI_METHOD,
+    heat_load_index,
     slope_and_aspect,
     topographic_wetness_index,
 )
@@ -135,11 +137,17 @@ def ingest(aoi: AreaOfInterest, *, force: bool = False) -> int:
         )
         twi = _expand(coarse_twi, TWI_COARSENING, grid.shape)
 
+        # Heat load needs the area's latitude; the centre is close enough for a term that
+        # varies by less than a degree across the whole area of interest.
+        centre_lat = (aoi.bbox().south + aoi.bbox().north) / 2.0
+        heat = heat_load_index(slope, aspect, centre_lat)
+
         for indicator, array, method in (
             (IndicatorId.ELEVATION_M, elevation, SLOPE_METHOD),
             (IndicatorId.SLOPE_DEG, slope, SLOPE_METHOD),
             (IndicatorId.ASPECT_DEG, aspect, SLOPE_METHOD),
             (IndicatorId.TWI, twi, TWI_METHOD),
+            (IndicatorId.HEAT_LOAD, heat, HEAT_LOAD_METHOD),
         ):
             valid = np.isfinite(array) & land
             if not valid.any():

@@ -143,7 +143,9 @@
         "elevation_m",
         "slope_deg",
         "aspect_deg",
-        "twi"
+        "twi",
+        "heat_load",
+        "land_cover"
       ],
       "title": "IndicatorId",
       "type": "string"

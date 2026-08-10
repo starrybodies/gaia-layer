@@ -19,6 +19,11 @@ import {
   type LayerInfo,
   type NumericEnvelope,
 } from "@/lib/api";
+import {
+  CATEGORICAL_INDICATORS,
+  dryingDirection,
+  LAND_COVER_CLASSES,
+} from "@gaia/core";
 import { InterpretationPanel } from "@/components/Interpretation";
 import {
   Citation,
@@ -43,23 +48,85 @@ const CELL_LAYER = "gaia-cells-fill";
  */
 const RAMP = ["#e0623c", "#f0a830", "#c8e6c9", "#00e87b", "#00c8e0"] as const;
 
-const DRYING_DIRECTION: Record<string, "up" | "down"> = {
-  substrate_score: "up",
-  slope_deg: "up",
-  ndmi_departure: "down",
-  ndvi_departure: "down",
-  nbr_departure: "down",
-  ndvi: "down",
-  ndmi: "down",
-  nbr: "down",
-  vpd_kpa: "up",
-  precip_30d_mm: "down",
-  temp_max_c: "up",
-  days_since_rain: "up",
-  soil_moisture_0_7cm: "down",
-  soil_moisture_7_28cm: "down",
-  twi: "down",
-};
+/** Drawn for a class the WorldCover legend does not name, so an unknown code is visible. */
+const UNKNOWN_CLASS_COLOUR = "#6b7280";
+
+/** A class code is a name. Printing "30.000" for grassland would be the wrong kind of true. */
+function readingText(indicator: string, reading: number | null): string {
+  if (reading === null) return "—";
+  if (!CATEGORICAL_INDICATORS.has(indicator)) return reading.toFixed(3);
+  const code = Math.round(reading);
+  return LAND_COVER_CLASSES[code]?.label ?? `Class ${code}`;
+}
+
+/** A ramp of quantile breaks, or the classes a categorical layer actually contains. */
+type Legend =
+  | { kind: "ramp"; stops: number[]; colours: string[] }
+  | { kind: "classes"; entries: { code: number; label: string; colour: string; share: number }[] };
+
+type SetLegend = (legend: Legend) => void;
+
+/**
+ * Continuous layers: five quantile breaks, warm end on the fire-prone side.
+ *
+ * Percentile stops rather than min and max, because a single outlier cell would otherwise
+ * flatten the whole ramp into one colour.
+ */
+function rampPaint(
+  readings: number[],
+  indicator: string,
+  setLegend: SetLegend,
+): maplibregl.ExpressionSpecification {
+  const at = (q: number): number => readings[Math.floor(q * (readings.length - 1))] ?? 0;
+  const stops = [at(0.05), at(0.275), at(0.5), at(0.725), at(0.95)];
+  const colours = dryingDirection(indicator) === "down" ? [...RAMP] : [...RAMP].reverse();
+
+  setLegend({ kind: "ramp", stops, colours });
+
+  const breaks: (string | number)[] = [];
+  stops.forEach((stop, i) => {
+    breaks.push(stop, colours[i] as string);
+  });
+
+  return [
+    "interpolate",
+    ["linear"],
+    ["coalesce", ["get", "reading"], stops[0] ?? 0],
+    ...breaks,
+  ] as unknown as maplibregl.ExpressionSpecification;
+}
+
+/**
+ * Categorical layers: one flat colour per class, in the product's own legend colours.
+ *
+ * No interpolation anywhere in this expression. A gradient between two class codes would
+ * draw a boundary that does not exist and imply an ordering the data does not have.
+ */
+function classPaint(readings: number[], setLegend: SetLegend): maplibregl.ExpressionSpecification {
+  const counts = new Map<number, number>();
+  for (const reading of readings) {
+    const code = Math.round(reading);
+    counts.set(code, (counts.get(code) ?? 0) + 1);
+  }
+
+  const entries = [...counts.entries()]
+    .sort(([, a], [, b]) => b - a)
+    .map(([code, count]) => ({
+      code,
+      label: LAND_COVER_CLASSES[code]?.label ?? `Class ${code}`,
+      colour: LAND_COVER_CLASSES[code]?.colour ?? UNKNOWN_CLASS_COLOUR,
+      share: count / readings.length,
+    }));
+
+  setLegend({ kind: "classes", entries });
+
+  return [
+    "match",
+    ["round", ["coalesce", ["get", "reading"], -1]],
+    ...entries.flatMap((entry) => [entry.code, entry.colour]),
+    UNKNOWN_CLASS_COLOUR,
+  ] as unknown as maplibregl.ExpressionSpecification;
+}
 
 const BASEMAP: maplibregl.StyleSpecification = {
   version: 8,
@@ -115,7 +182,7 @@ export function MapView({ coverage }: { coverage: Coverage }) {
   const [selected, setSelected] = useState<CellProperties | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [legend, setLegend] = useState<{ stops: number[]; colours: string[] } | null>(null);
+  const [legend, setLegend] = useState<Legend | null>(null);
 
   // --- map lifecycle ---------------------------------------------------------------
   useEffect(() => {
@@ -188,19 +255,9 @@ export function MapView({ coverage }: { coverage: Coverage }) {
         .sort((a, b) => a - b);
       if (readings.length === 0) throw new Error("no cells with data");
 
-      // Percentile stops rather than min/max: a single outlier cell would otherwise
-      // flatten the whole ramp into one colour.
-      const at = (q: number): number => readings[Math.floor(q * (readings.length - 1))] ?? 0;
-      const stops = [at(0.05), at(0.275), at(0.5), at(0.725), at(0.95)];
-      const dry = DRYING_DIRECTION[indicator] ?? "down";
-      const colours = dry === "down" ? [...RAMP] : [...RAMP].reverse();
-
-      setLegend({ stops, colours });
-
-      const paint: (string | number)[] = [];
-      stops.forEach((stop, i) => {
-        paint.push(stop, colours[i] as string);
-      });
+      const fillColour = CATEGORICAL_INDICATORS.has(indicator)
+        ? classPaint(readings, setLegend)
+        : rampPaint(readings, indicator, setLegend);
 
       const apply = (): void => {
         const existing = instance.getSource(CELL_SOURCE);
@@ -232,12 +289,7 @@ export function MapView({ coverage }: { coverage: Coverage }) {
             instance.getCanvas().style.cursor = "";
           });
         }
-        instance.setPaintProperty(CELL_LAYER, "fill-color", [
-          "interpolate",
-          ["linear"],
-          ["coalesce", ["get", "reading"], stops[0] ?? 0],
-          ...paint,
-        ] as unknown as maplibregl.ExpressionSpecification);
+        instance.setPaintProperty(CELL_LAYER, "fill-color", fillColour);
       };
 
       if (instance.isStyleLoaded()) apply();
@@ -340,31 +392,54 @@ export function MapView({ coverage }: { coverage: Coverage }) {
         {legend !== null && error === null && (
           <div className="border-line bg-void/92 pointer-events-none absolute bottom-10 left-3 border p-3 backdrop-blur">
             <p className="eyebrow text-muted">{activeLayer?.label ?? label(indicator)}</p>
-            <div className="mt-2 flex">
-              {legend.colours.map((colour, i) => (
-                <span
-                  key={colour}
-                  className="h-2 w-9"
-                  style={{ background: colour }}
-                  title={`≥ ${legend.stops[i]?.toFixed(3)}`}
-                />
-              ))}
-            </div>
-            <div className="numeric text-faint mt-1.5 flex justify-between text-[9px]">
-              <span>{legend.stops[0]?.toFixed(2)}</span>
-              <span>{legend.stops[legend.stops.length - 1]?.toFixed(2)}</span>
-            </div>
-            <p className="numeric text-faint mt-1 text-[9px]">
-              {/* The ramp is reversed for layers where a high number is the dry end, so
-                  the warm colours always sit on the fire-prone side. The caption has to
-                  follow that, not the raw value order. */}
-              {(DRYING_DIRECTION[indicator] ?? "down") === "down"
-                ? "left = drier · right = wetter"
-                : "left = wetter · right = drier"}
-            </p>
-            <p className="numeric text-faint mt-0.5 text-[9px]">
-              500 m cells · 5th–95th percentile
-            </p>
+            {legend.kind === "ramp" ? (
+              <>
+                <div className="mt-2 flex">
+                  {legend.colours.map((colour, i) => (
+                    <span
+                      key={colour}
+                      className="h-2 w-9"
+                      style={{ background: colour }}
+                      title={`≥ ${legend.stops[i]?.toFixed(3)}`}
+                    />
+                  ))}
+                </div>
+                <div className="numeric text-faint mt-1.5 flex justify-between text-[9px]">
+                  <span>{legend.stops[0]?.toFixed(2)}</span>
+                  <span>{legend.stops[legend.stops.length - 1]?.toFixed(2)}</span>
+                </div>
+                <p className="numeric text-faint mt-1 text-[9px]">
+                  {/* The ramp is reversed for layers where a high number is the dry end, so
+                      the warm colours always sit on the fire-prone side. The caption has to
+                      follow that, not the raw value order. */}
+                  {dryingDirection(indicator) === "down"
+                    ? "left = drier · right = wetter"
+                    : "left = wetter · right = drier"}
+                </p>
+                <p className="numeric text-faint mt-0.5 text-[9px]">
+                  500 m cells · 5th–95th percentile
+                </p>
+              </>
+            ) : (
+              <>
+                {/* Classes in descending order of ground covered, so the legend also reads
+                    as the composition of the area. No ordering is implied beyond that. */}
+                <ul className="mt-2 space-y-1">
+                  {legend.entries.map((entry) => (
+                    <li key={entry.code} className="flex items-center gap-2">
+                      <span className="h-2 w-4 shrink-0" style={{ background: entry.colour }} />
+                      <span className="text-[10px] text-dim">{entry.label}</span>
+                      <span className="numeric text-faint ml-auto text-[9px]">
+                        {(entry.share * 100).toFixed(0)}%
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="numeric text-faint mt-1.5 text-[9px]">
+                  500 m cells · majority class · share of cells
+                </p>
+              </>
+            )}
           </div>
         )}
 
@@ -413,7 +488,7 @@ export function MapView({ coverage }: { coverage: Coverage }) {
               <div className="flex items-baseline justify-between">
                 <span className="text-sm text-dim">{label(indicator)}</span>
                 <span className="numeric text-xl text-text">
-                  {selected.reading === null ? "—" : selected.reading.toFixed(3)}
+                  {readingText(indicator, selected.reading)}
                 </span>
               </div>
               <div className="mt-2 flex items-center gap-4">

@@ -16,8 +16,10 @@
  * slope without a spatial join.
  */
 
+import { CATEGORICAL_INDICATORS, dryingDirection } from "@gaia/core";
+
 import { query, num, str } from "./db.js";
-import { NoDataForPeriodError } from "./errors.js";
+import { IndicatorNotInterpretableError, NoDataForPeriodError } from "./errors.js";
 
 /** `val_abc:12:34` -> `12:34`. Value ids never contain a colon. */
 const CELL_POSITION = "regexp_extract(cell_id, ':(\\d+:\\d+)$', 1)";
@@ -124,25 +126,63 @@ const LABELS: Record<string, string> = {
   slope_deg: "slope",
   aspect_deg: "aspect",
   twi: "topographic wetness",
+  heat_load: "heat load",
+  dnbr: "burn severity",
 };
 
+/** Suffixes a derived layer carries, and what the reading calls them. */
+const SUFFIXES: ReadonlyArray<readonly [string, string]> = [
+  ["_departure", "departure"],
+  ["_annual_min", "annual low"],
+  ["_amplitude", "seasonal swing"],
+];
+
 function labelFor(indicator: string): string {
-  if (indicator.endsWith("_departure")) {
-    return `${LABELS[indicator.replace("_departure", "")] ?? indicator} departure`;
+  for (const [suffix, phrase] of SUFFIXES) {
+    if (indicator.endsWith(suffix)) {
+      return `${LABELS[indicator.slice(0, -suffix.length)] ?? indicator} ${phrase}`;
+    }
   }
   return LABELS[indicator] ?? indicator;
 }
 
 /** True when a higher number means drier, more fire-prone ground. */
 function higherIsDrier(indicator: string): boolean {
-  return indicator === "substrate_score" || indicator === "slope_deg";
+  return dryingDirection(indicator) === "up";
 }
+
+/**
+ * Terrain variables a layer must not be correlated against, because it is computed from
+ * them.
+ *
+ * "Elevation tracks elevation upward, r = 1.00" is not a finding, and neither is topographic
+ * wetness against the slope in its own denominator. A correlation that the formula
+ * guarantees tells a reader nothing about this landscape, and printing it next to real
+ * correlations invites them to weigh the two the same way.
+ */
+const CIRCULAR_AGAINST: Record<string, ReadonlySet<string>> = {
+  // Aspect shares no term with any of the three, and is listed with nothing to drop so
+  // that membership of this table can also stand for "this layer is landform itself".
+  aspect_deg: new Set(),
+  elevation_m: new Set(["elevation"]),
+  slope_deg: new Set(["slope", "topographic wetness"]),
+  twi: new Set(["slope", "topographic wetness"]),
+  heat_load: new Set(["slope"]),
+};
 
 export async function interpretLayer(
   aoiId: string,
   indicator: string,
   periodStart: string,
 ): Promise<Interpretation> {
+  if (CATEGORICAL_INDICATORS.has(indicator)) {
+    throw new IndicatorNotInterpretableError(
+      indicator,
+      "Its values are class codes rather than quantities, so quantiles, zonal means and " +
+        "correlations against terrain would all be arithmetic on labels.",
+    );
+  }
+
   const base = [aoiId, indicator, periodStart];
 
   const [dist] = await query(
@@ -246,6 +286,8 @@ export async function interpretLayer(
     base,
   );
 
+  const circular = CIRCULAR_AGAINST[indicator.replace(/_(departure|annual_min|amplitude)$/, "")];
+
   const correlations: Correlation[] = (
     [
       ["elevation", num(corr?.["r_elev"] ?? Number.NaN)],
@@ -253,6 +295,7 @@ export async function interpretLayer(
       ["topographic wetness", num(corr?.["r_twi"] ?? Number.NaN)],
     ] as [string, number][]
   )
+    .filter(([against]) => circular?.has(against) !== true)
     .filter(([, r]) => Number.isFinite(r))
     .map(([against, r]) => ({
       against,
@@ -375,6 +418,10 @@ function compose(i: Interpretation): string[] {
         `ninetieth percentiles — an area-wide figure represents most of this landscape well.`,
   );
 
+  // A terrain layer is landform already, so the usual "terrain rather than vegetation"
+  // gloss says nothing about it. It gets the correlation and no interpretation of it.
+  const isTerrain = CIRCULAR_AGAINST[i.indicator] !== undefined;
+
   const strongest = [...i.correlations]
     .filter((c) => c.strength !== "none")
     .sort((a, b) => Math.abs(b.r) - Math.abs(a.r))[0];
@@ -382,15 +429,20 @@ function compose(i: Interpretation): string[] {
     out.push(
       `${name[0]?.toUpperCase()}${name.slice(1)} tracks ${strongest.against} ` +
         `${strongest.direction === "positive" ? "upward" : "downward"} ` +
-        `(r = ${strongest.r.toFixed(2)}, ${strongest.strength}, n = ${strongest.n.toLocaleString()}), ` +
-        `so terrain explains part of what the map shows rather than it being ` +
-        `vegetation alone.`,
+        `(r = ${strongest.r.toFixed(2)}, ${strongest.strength}, n = ${strongest.n.toLocaleString()})` +
+        (isTerrain
+          ? `.`
+          : `, so terrain explains part of what the map shows rather than it being ` +
+            `vegetation alone.`),
     );
   } else if (i.correlations.length > 0) {
-    out.push(
+    const weakest =
       `No terrain variable correlates meaningfully with ${name} at this scale ` +
-        `(strongest |r| = ${Math.max(...i.correlations.map((c) => Math.abs(c.r))).toFixed(2)}), ` +
-        `which points at land cover and management rather than landform.`,
+      `(strongest |r| = ${Math.max(...i.correlations.map((c) => Math.abs(c.r))).toFixed(2)})`;
+    out.push(
+      isTerrain
+        ? `${weakest}.`
+        : `${weakest}, which points at land cover and management rather than landform.`,
     );
   }
 

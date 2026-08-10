@@ -26,6 +26,15 @@ export const INDICATOR_LABELS: Record<string, string> = {
   slope_deg: "Slope",
   aspect_deg: "Aspect",
   twi: "Topographic wetness",
+  heat_load: "Heat load",
+  land_cover: "Land cover",
+  dnbr: "Burn severity",
+  ndvi_annual_min: "Greenness, annual low",
+  ndmi_annual_min: "Canopy moisture, annual low",
+  nbr_annual_min: "Burn ratio, annual low",
+  ndvi_amplitude: "Greenness, seasonal swing",
+  ndmi_amplitude: "Canopy moisture, seasonal swing",
+  nbr_amplitude: "Burn ratio, seasonal swing",
 };
 
 export const INDICATOR_CODES: Record<string, string> = {
@@ -42,6 +51,15 @@ export const INDICATOR_CODES: Record<string, string> = {
   slope_deg: "SLOPE",
   aspect_deg: "ASP",
   twi: "TWI",
+  heat_load: "HLI",
+  land_cover: "LC",
+  dnbr: "DNBR",
+  ndvi_annual_min: "NDVI↓",
+  ndmi_annual_min: "NDMI↓",
+  nbr_annual_min: "NBR↓",
+  ndvi_amplitude: "NDVI∆",
+  ndmi_amplitude: "NDMI∆",
+  nbr_amplitude: "NBR∆",
 };
 
 export function label(indicator: string): string {

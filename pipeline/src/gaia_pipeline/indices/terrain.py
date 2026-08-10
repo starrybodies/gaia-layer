@@ -150,3 +150,54 @@ def topographic_wetness_index(
     with np.errstate(divide="ignore", invalid="ignore"):
         twi = np.log(np.maximum(specific_area, cell_size_m) / np.tan(beta))
     return np.where(np.isfinite(elevation), twi, np.nan).astype("float32")
+
+
+HEAT_LOAD_METHOD = Method(
+    name="Heat load index (McCune and Keon 2001)",
+    citation=(
+        "McCune, B. and Keon, D. (2002). Equations for potential annual direct incident "
+        "radiation and heat load. Journal of Vegetation Science, 13(4), 603-606. "
+        "doi:10.1111/j.1654-1103.2002.tb02087.x"
+    ),
+    doi="10.1111/j.1654-1103.2002.tb02087.x",
+    formula=(
+        "HLI = 0.339 + 0.808 cos(lat) cos(slope) - 0.196 sin(lat) sin(slope) "
+        "- 0.482 cos(A') sin(slope), A' = 180 - |aspect - 225|"
+    ),
+    notes=(
+        "Potential annual heat load from slope, aspect and latitude. Aspect is folded about "
+        "the northeast-southwest axis so that southwest — the hottest aspect in the northern "
+        "hemisphere, because afternoon sun falls on already-warm ground — scores highest, "
+        "rather than treating due south as the peak. This is the physical mechanism behind "
+        "the aspect gradients the moisture indices show."
+    ),
+)
+
+
+def heat_load_index(
+    slope_degrees: np.ndarray, aspect_degrees: np.ndarray, latitude_degrees: float
+) -> np.ndarray:
+    """Potential annual heat load, roughly 0 to 1.
+
+    Flat ground has no aspect, and the equation reduces correctly there: the aspect terms
+    carry sin(slope), which is zero, so a flat cell scores on latitude alone.
+    """
+    lat = np.radians(latitude_degrees)
+    slope = np.radians(np.nan_to_num(slope_degrees, nan=0.0))
+
+    # Folded aspect: distance from northeast, so southwest is the maximum.
+    folded = np.radians(180.0 - np.abs(np.nan_to_num(aspect_degrees, nan=225.0) - 225.0))
+
+    hli = (
+        0.339
+        + 0.808 * np.cos(lat) * np.cos(slope)
+        - 0.196 * np.sin(lat) * np.sin(slope)
+        - 0.482 * np.cos(folded) * np.sin(slope)
+    )
+
+    # The published equation is a regression fit, and near-vertical northeast faces in the
+    # tropics take it a fraction below zero. A negative annual heat load is not a thing;
+    # the floor is the fit's error, not a measurement, and clipping keeps the hard bound at
+    # zero meaningful rather than padding it to admit an artefact.
+    hli = np.maximum(hli, 0.0)
+    return np.where(np.isfinite(slope_degrees), hli, np.nan).astype("float32")

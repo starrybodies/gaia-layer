@@ -69,6 +69,10 @@ class IndicatorId(StrEnum):
     SLOPE_DEG = "slope_deg"
     ASPECT_DEG = "aspect_deg"
     TWI = "twi"
+    HEAT_LOAD = "heat_load"
+
+    # --- land cover (ESA WorldCover 10 m) ----------------------------------------
+    LAND_COVER = "land_cover"
 
 
 class IndicatorFamily(StrEnum):
@@ -76,6 +80,7 @@ class IndicatorFamily(StrEnum):
     CLIMATE = "climate"
     SOIL = "soil"
     TERRAIN = "terrain"
+    LAND_COVER = "land_cover"
 
 
 _FAMILY_BY_INDICATOR: dict[IndicatorId, IndicatorFamily] = {
@@ -92,6 +97,8 @@ _FAMILY_BY_INDICATOR: dict[IndicatorId, IndicatorFamily] = {
     IndicatorId.SLOPE_DEG: IndicatorFamily.TERRAIN,
     IndicatorId.ASPECT_DEG: IndicatorFamily.TERRAIN,
     IndicatorId.TWI: IndicatorFamily.TERRAIN,
+    IndicatorId.HEAT_LOAD: IndicatorFamily.TERRAIN,
+    IndicatorId.LAND_COVER: IndicatorFamily.LAND_COVER,
 }
 
 
@@ -113,6 +120,8 @@ UNITS: dict[IndicatorId, str] = {
     IndicatorId.SLOPE_DEG: "degrees",
     IndicatorId.ASPECT_DEG: "degrees",
     IndicatorId.TWI: "index",
+    IndicatorId.HEAT_LOAD: "index",
+    IndicatorId.LAND_COVER: "class",
 }
 
 Longitude = Annotated[float, Field(ge=-180.0, le=180.0)]

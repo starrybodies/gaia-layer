@@ -85,6 +85,24 @@ export class ClaimNotFoundError extends ServiceError {
   }
 }
 
+/**
+ * The layer exists, but the reading asked for is not defined on it.
+ *
+ * Land cover is the case this was written for. Its numbers are class codes, so a median or
+ * a correlation against slope would be arithmetic on labels — a number that looks like an
+ * answer and means nothing. Refusing is the only honest response until the categorical
+ * reading exists.
+ */
+export class IndicatorNotInterpretableError extends ServiceError {
+  constructor(indicator: string, reason: string) {
+    super(
+      "indicator_unavailable",
+      `No distribution reading for ${indicator}.`,
+      `${reason} Read the layer on the map, or use \`list_layers\` for what it contains.`,
+    );
+  }
+}
+
 export class LakeUnavailableError extends ServiceError {
   constructor(path: string, cause: string) {
     super(

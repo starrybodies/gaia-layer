@@ -136,3 +136,28 @@ TWI describes hillslope position rather than fine texture, so the coarser grid c
 the native grid. Neither is worth a dependency in v0.1.
 
 **Raised:** 2026-08-07 · **Status:** accepted
+
+---
+
+## D-007 — Land cover is a 2021 epoch under 2025 spectral data
+
+**Specified:** Every indicator describes the period it is served for.
+
+**Reality:** ESA WorldCover is published as single-year global epochs. v200 is 2021, and
+there is no monthly or annual product at 10 m that is open and anonymous. The spectral
+indices this layer sits beside are current to the ingested window.
+
+**Built:** Land cover is ingested once, as a static indicator, with the acquisition date in
+its provenance chain set to the 2021 epoch rather than to the analysis window. It is used
+to say what kind of ground a cell is, never to say what changed.
+
+The consequence is stated rather than hidden: ground cleared, burned or built since 2021
+still reads as whatever it was in 2021. On a twelve-month wildfire window that mostly
+matters where harvest has been heavy, which is also where the dNBR layer will show the
+disturbance the cover class missed.
+
+**To close:** A second epoch — WorldCover v100 for 2020, or a Dynamic World composite —
+would turn one label into a change detection. That is a different indicator with a
+different validation story, not a version bump on this one.
+
+**Raised:** 2026-08-09 · **Status:** accepted for v0.1, limitation stated in the layer note

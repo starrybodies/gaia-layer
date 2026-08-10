@@ -953,6 +953,15 @@ export async function listLayers(aoiId: string): Promise<unknown> {
     ndmi_departure: { label: "Moisture departure", kind: "derived", note: "NDMI against this cell's own twelve-month median. Negative is drier than normal for this place." },
     ndvi_departure: { label: "Greenness departure", kind: "derived", note: "NDVI against this cell's own twelve-month median." },
     nbr_departure: { label: "Burn ratio departure", kind: "derived", note: "NBR against this cell's own twelve-month median." },
+    heat_load: { label: "Heat load", kind: "measured", note: "McCune and Keon (2002). Potential annual heat load from slope, aspect and latitude, folded so southwest scores highest. The mechanism behind the aspect gradients the moisture layers show." },
+    land_cover: { label: "Land cover", kind: "measured", note: "ESA WorldCover 10 m, 2021 epoch. Class codes, not quantities: each cell takes the class covering most of it. A single epoch, so ground cleared since 2021 still reads as whatever it was." },
+    dnbr: { label: "Burn severity", kind: "derived", note: "NBR differenced between the first and last month on record. Over twelve months this mostly shows harvest rather than fire, which is still the disturbance that changed the fuel." },
+    ndmi_annual_min: { label: "Canopy moisture, annual low", kind: "derived", note: "The driest month each cell reached. Where fuel gets to, not where it sits today." },
+    ndvi_annual_min: { label: "Greenness, annual low", kind: "derived", note: "The least green month each cell reached." },
+    nbr_annual_min: { label: "Burn ratio, annual low", kind: "derived", note: "The lowest burn ratio each cell reached." },
+    ndmi_amplitude: { label: "Canopy moisture, seasonal swing", kind: "derived", note: "Annual range. A wide swing marks fuels that cure; a narrow one marks canopy that holds moisture through the season." },
+    ndvi_amplitude: { label: "Greenness, seasonal swing", kind: "derived", note: "Annual range. Separates deciduous and grass from evergreen cover." },
+    nbr_amplitude: { label: "Burn ratio, seasonal swing", kind: "derived", note: "Annual range in NBR." },
   };
 
   return rows.map((r) => {
