@@ -16,7 +16,7 @@ from rasterio.transform import Affine
 
 from gaia_pipeline.eii import target
 from gaia_pipeline.eii.area import H3_RES
-from gaia_pipeline.eii.sources.landsat import HIGH_SEVERITY_DNBR, SeverityWindow
+from gaia_pipeline.eii.sources.severity import HIGH_SEVERITY_DNBR, SeverityWindow
 from gaia_pipeline.eii.spine import Spine
 from gaia_pipeline.eii.target import (
     MINIMUM_SCENES,
@@ -79,7 +79,7 @@ def wiring(monkeypatch, spine):
     )
     monkeypatch.setattr(target.nbac, "burned_fraction", lambda perimeters, sp: state["burned"])
     monkeypatch.setattr(
-        target.landsat,
+        target.severity,
         "severity_for_bounds",
         lambda bounds, year, **kwargs: (
             window_for(spine, state["dnbr"], pre=state["pre"], post=state["post"]),

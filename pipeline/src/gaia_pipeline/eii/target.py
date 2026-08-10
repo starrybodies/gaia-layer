@@ -32,8 +32,8 @@ from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
 from .archive import SourceRecord
-from .sources import landsat, nbac
-from .sources.landsat import HIGH_SEVERITY_DNBR, SeverityWindow
+from .sources import nbac, severity
+from .sources.severity import HIGH_SEVERITY_DNBR, SeverityWindow
 from .spine import Spine
 
 log = logging.getLogger(__name__)
@@ -154,7 +154,7 @@ def severity_labels(
             if bounds is None:
                 continue
 
-            window, scene_sources = landsat.severity_for_bounds(
+            window, scene_sources = severity.severity_for_bounds(
                 bounds,
                 year,
                 crs=spine.grid.crs,

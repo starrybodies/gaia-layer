@@ -107,7 +107,7 @@ def write_report(
     add("- **Question:** given that this 500 m cell burned, did it burn at high severity?")
     add(
         "- **Label:** mean dNBR across the cell at or above 660, the Key and Benson (2006) "
-        "high-severity break, from Landsat growing-season composites one year either side "
+        "high-severity break, from Sentinel-2 growing-season composites one year either side "
         "of the fire."
     )
     add(
