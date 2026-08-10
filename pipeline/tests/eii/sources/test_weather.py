@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
@@ -62,7 +63,7 @@ class TestAgainstCwfis:
     def test_the_fixture_is_a_contiguous_season(self, cwfis) -> None:
         days = [date.fromisoformat(row["date"]) for row in cwfis]
         assert len(days) > 140
-        assert all((b - a).days == 1 for a, b in zip(days, days[1:], strict=False))
+        assert all((b - a).days == 1 for a, b in pairwise(days))
 
     @pytest.mark.parametrize(
         ("code", "tolerance"), [("ffmc", 1.5), ("dc", 1.0), ("isi", 0.5), ("fwi", 2.0)]
