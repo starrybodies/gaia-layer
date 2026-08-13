@@ -32,8 +32,10 @@ FIXTURE = Path(__file__).parent.parent / "fixtures" / "fbp" / "fbp-fueltypes-kel
 #: West Kelowna, comfortably inside the fixture window.
 TOY_CENTRE = (49.863, -119.583)
 
-#: North of the fixture's top edge, so a spine here half hangs off the raster.
-EDGE_CENTRE = (50.002, -119.583)
+#: On the fixture's top edge, so a spine here half hangs off the raster. The fixture is a
+#: rectangle in the source's Lambert projection, which is a rotated quadrilateral in
+#: lat/lon: at this longitude the edge sits at about 50.052, not at a round number.
+EDGE_CENTRE = (50.052, -119.583)
 
 
 def _spine(centre: tuple[float, float], cache_dir: Path) -> Spine:

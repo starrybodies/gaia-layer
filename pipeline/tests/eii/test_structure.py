@@ -23,17 +23,16 @@ import pytest
 
 from gaia_pipeline.eii.area import H3_RES
 from gaia_pipeline.eii.components import structure
-from gaia_pipeline.eii.components.structure import (
+from gaia_pipeline.eii.components.reference import (
     DEGENERATE_REFERENCE,
     MINIMUM_REFERENCE_CELLS,
     NO_STRATUM,
-    SIGN,
     SPARSE_REFERENCE,
     UNSTRATIFIED,
-    component_a,
     reference_strata,
     zscore_within,
 )
+from gaia_pipeline.eii.components.structure import SIGN, component_a
 from gaia_pipeline.eii.spine import Spine
 
 # A ring over West Kelowna, the same ground the case study is about. Radius 4 is 61 cells,

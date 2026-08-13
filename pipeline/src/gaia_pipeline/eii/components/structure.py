@@ -41,6 +41,13 @@ import pyarrow as pa
 
 from ..archive import MethodRecord
 from ..spine import Spine
+from .reference import (
+    SPARSE_REFERENCE,
+    UNSTRATIFIED,
+    flag_labels,
+    reference_strata,
+    zscore_within,
+)
 
 log = logging.getLogger(__name__)
 
@@ -61,27 +68,6 @@ SIGN: dict[str, float] = {
     "crown_closure": 1.0,
     "stand_age": 1.0,
 }
-
-#: Below this many members a stratum is a handful of neighbours rather than a distribution.
-#: Thirty is the conventional floor for treating a sample mean and spread as usable, and the
-#: consequence of being under it here is a documented fallback, not a silently confident z.
-MINIMUM_REFERENCE_CELLS = 30
-
-#: A cell whose BEC unit or cover class is unknown belongs to no stratum.
-NO_STRATUM = -1
-
-#: The stratum was too small, so the study-area distribution was used instead.
-SPARSE_REFERENCE = 0b001
-#: The reference had no spread at all, so the deviation is zero by construction.
-DEGENERATE_REFERENCE = 0b010
-#: The cell has no BEC unit or no cover class, so it could not be placed in a stratum.
-UNSTRATIFIED = 0b100
-
-_FLAG_NAMES: tuple[tuple[int, str], ...] = (
-    (SPARSE_REFERENCE, "sparse_reference"),
-    (DEGENERATE_REFERENCE, "degenerate_reference"),
-    (UNSTRATIFIED, "unstratified"),
-)
 
 #: How much wider a z is when the reference behind it is not the cell's own context. There is
 #: no estimate to derive this from — the error is a mis-specified reference, not a sampling
@@ -116,122 +102,6 @@ STRUCTURE_METHOD = MethodRecord(
         "nothing rather than zero."
     ),
 )
-
-
-def flag_labels(mask: int) -> tuple[str, ...]:
-    """The names of the flags set in a mask, in the order they are defined."""
-    return tuple(name for bit, name in _FLAG_NAMES if mask & bit)
-
-
-def reference_strata(bec_codes: np.ndarray, cover_codes: np.ndarray) -> np.ndarray:
-    """Per-cell stratum id from the BEC unit crossed with the cover class.
-
-    Both inputs arrive as the float class codes `Spine.majority` produces, NaN where the cell
-    had no evidence of either. A cell missing either half has no context to be compared
-    within and gets `NO_STRATUM`; it is scored against the study area and flagged, rather than
-    dropped, because a cell off the edge of the BEC mapping is still a cell an underwriter can
-    ask about.
-
-    Ids are dense integers assigned from the pairs present in this call, in the same spirit as
-    `bcgw.rasterise`: they identify a stratum within one run and carry no meaning across runs.
-    """
-    bec = np.asarray(bec_codes, dtype="float64")
-    cover = np.asarray(cover_codes, dtype="float64")
-    if bec.shape != cover.shape:
-        raise ValueError(f"BEC codes are {bec.shape} against cover codes {cover.shape}")
-
-    strata = np.full(bec.shape, NO_STRATUM, dtype="int64")
-    known = np.isfinite(bec) & np.isfinite(cover)
-    if not known.any():
-        return strata
-
-    _, bec_rank = np.unique(bec[known], return_inverse=True)
-    cover_levels, cover_rank = np.unique(cover[known], return_inverse=True)
-    _, crossed = np.unique(bec_rank * cover_levels.size + cover_rank, return_inverse=True)
-    strata[known] = crossed
-    return strata
-
-
-def zscore_within(
-    values: np.ndarray,
-    strata: np.ndarray,
-    *,
-    minimum: int = MINIMUM_REFERENCE_CELLS,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Z-scores against each cell's own stratum. Returns (z, stratum_n, flags).
-
-    Three refusals are the whole point of this function.
-
-    A stratum with fewer than `minimum` members is not a reference. Those cells are scored
-    against the study-area distribution and flagged `SPARSE_REFERENCE`, so that a confident
-    looking z is never produced out of six neighbours without saying so.
-
-    A stratum with no spread yields zero, flagged `DEGENERATE_REFERENCE`. Dividing by it would
-    give an infinity for anything off the constant and a nan for the constant itself, and both
-    would travel downstream as if they were measurements.
-
-    A missing value yields a missing z. A cell with no canopy measurement has no deviation to
-    report, and a zero there would read as a stand that is exactly average, which is the
-    strongest possible claim rather than the absence of one.
-
-    `stratum_n` is the number of cells that share the cell's own stratum and carry a value,
-    whichever reference was actually used. When `SPARSE_REFERENCE` is set it is therefore the
-    count that was too small — the number that explains the flag.
-
-    Spread is the population standard deviation. The stratum is the population of interest
-    here, not a sample drawn from a larger one, and at the sizes that pass the minimum the
-    choice moves a z by under two per cent anyway. Variance is taken in a second pass over the
-    deviations rather than from a sum of squares, which costs one more `bincount` and avoids
-    the cancellation that turns a small spread in large numbers, such as stand age, into a
-    negative variance.
-    """
-    observed = np.asarray(values, dtype="float64")
-    labels = np.asarray(strata, dtype="int64")
-    if observed.shape != labels.shape:
-        raise ValueError(f"{observed.shape} values against {labels.shape} strata")
-
-    present = np.isfinite(observed)
-    counted = present & (labels >= 0)
-    # One trailing slot always exists, so the gather below is safe even with no strata at all.
-    width = max(int(labels.max()) + 1, 1) if labels.size else 1
-
-    counts = np.bincount(labels[counted], minlength=width)
-    totals = np.bincount(labels[counted], weights=observed[counted], minlength=width)
-    with np.errstate(invalid="ignore"):
-        means = np.where(counts > 0, totals / np.maximum(counts, 1), np.nan)
-
-    deviations = np.zeros(observed.shape, dtype="float64")
-    deviations[counted] = observed[counted] - means[labels[counted]]
-    squares = np.bincount(labels[counted], weights=deviations[counted] ** 2, minlength=width)
-    with np.errstate(invalid="ignore"):
-        spreads = np.sqrt(np.where(counts > 0, squares / np.maximum(counts, 1), np.nan))
-
-    placed = labels >= 0
-    gather = np.where(placed, labels, 0)
-    stratum_n = np.where(placed, counts[gather], 0).astype("int64")
-
-    global_mean = float(np.mean(observed[present])) if present.any() else np.nan
-    global_spread = float(np.std(observed[present])) if present.any() else np.nan
-
-    own = placed & (stratum_n >= minimum)
-    reference_mean = np.where(own, means[gather], global_mean)
-    reference_spread = np.where(own, spreads[gather], global_spread)
-
-    flags = np.zeros(observed.shape, dtype="uint8")
-    flags[present & ~placed] |= UNSTRATIFIED
-    flags[present & placed & ~own] |= SPARSE_REFERENCE
-
-    usable = present & np.isfinite(reference_spread) & (reference_spread > 0.0)
-    # A present cell always has a finite reference mean: it is a member of whichever
-    # distribution was used, so anything unusable here is unusable for want of spread.
-    degenerate = present & ~usable
-    flags[degenerate] |= DEGENERATE_REFERENCE
-
-    z = np.full(observed.shape, np.nan, dtype="float64")
-    z[usable] = (observed[usable] - reference_mean[usable]) / reference_spread[usable]
-    z[degenerate] = 0.0
-
-    return z, stratum_n, flags
 
 
 def component_a(

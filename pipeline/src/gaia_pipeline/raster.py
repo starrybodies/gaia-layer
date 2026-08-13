@@ -10,6 +10,7 @@ Mac mini.
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,7 @@ from rasterio.errors import RasterioIOError
 from rasterio.io import MemoryFile
 from rasterio.shutil import copy as rio_copy
 from rasterio.warp import reproject
-from rasterio.windows import from_bounds
+from rasterio.windows import Window, WindowError, from_bounds, intersection
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from .grid import AnalysisGrid
@@ -64,38 +65,107 @@ def read_window(
     ``resampling`` should be ``average`` for continuous reflectance — it is the area-weighted
     mean that the plan calls for — and ``nearest`` for anything categorical, where averaging
     class codes would produce classes that do not exist.
+
+    Ground the source does not cover comes back NaN, never a fill value. The grid is
+    routinely larger than the raster being read — nine Copernicus DEM tiles cover the v0.2
+    study area, so eight ninths of every DEM read is outside its own tile — and a source
+    with no declared nodata would otherwise hand back zeroes there. A zero elevation is
+    indistinguishable from a measured valley floor, so it survives every downstream sanity
+    check and, worse, makes the next tile in a mosaic look redundant. ``dtype`` therefore
+    has to be a floating type; NaN is the only way to say "not measured here".
     """
     with rasterio.Env(**GDAL_ENV), rasterio.open(url) as src:
         if str(src.crs) == grid.crs:
-            window = from_bounds(*grid.bounds, transform=src.transform)
-            data = src.read(
-                1,
-                window=window,
-                out_shape=grid.shape,
-                resampling=resampling,
-                boundless=True,
-                fill_value=src.nodata if src.nodata is not None else 0,
-            )
-            out = data.astype(dtype)
+            out = _read_aligned(src, grid, resampling=resampling, dtype=dtype)
         else:
-            # Different projection: reproject the window rather than the whole scene.
-            window = from_bounds(*_bounds_in(src.crs, grid), transform=src.transform)
-            source = src.read(1, window=window, boundless=True, fill_value=0)
-            out = np.zeros(grid.shape, dtype=dtype)
-            reproject(
-                source=source,
-                destination=out,
-                src_transform=src.window_transform(window),
-                src_crs=src.crs,
-                dst_transform=grid.transform,
-                dst_crs=grid.crs,
-                resampling=resampling,
-            )
+            out = _read_reprojected(src, grid, resampling=resampling, dtype=dtype)
 
         nodata = src.nodata
         if nodata is not None:
             out = np.where(np.isclose(out, float(nodata)), np.nan, out)
         return np.asarray(out, dtype=dtype)
+
+
+def _read_aligned(
+    src: Any, grid: AnalysisGrid, *, resampling: Resampling, dtype: str
+) -> np.ndarray:
+    """Decimated read of a source already in the grid's CRS.
+
+    ``out_shape`` is what lets GDAL serve this from the file's overviews rather than the
+    full-resolution pixels, which is the reason a twelve-month ingest is feasible, so the
+    boundless read stays and the coverage is worked out separately.
+
+    It is worked out arithmetically rather than taken from rasterio's own boundless mask
+    because that mask is built by giving the fill value to a VRT as its nodata, which would
+    also mask any real pixel that happens to equal the fill. A canopy height of zero is
+    bare ground and an elevation of zero is sea level; neither is absence.
+
+    A grid pixel counts as covered only when the whole block of source pixels it averages
+    lies inside the source. Half-covered pixels at the edge are refused rather than
+    averaged against the fill, which costs one pixel line at the boundary and fabricates
+    nothing. The next tile in a mosaic covers it.
+    """
+    window = from_bounds(*grid.bounds, transform=src.transform)
+    data = src.read(
+        1,
+        window=window,
+        out_shape=grid.shape,
+        resampling=resampling,
+        boundless=True,
+        fill_value=0,
+    )
+
+    per_col = window.width / grid.width
+    per_row = window.height / grid.height
+    starts_col = window.col_off + np.arange(grid.width) * per_col
+    starts_row = window.row_off + np.arange(grid.height) * per_row
+    inside_col = (starts_col >= 0.0) & (starts_col + per_col <= src.width)
+    inside_row = (starts_row >= 0.0) & (starts_row + per_row <= src.height)
+
+    covered = inside_row[:, None] & inside_col[None, :]
+    return np.where(covered, data.astype(dtype), np.nan).astype(dtype)
+
+
+def _read_reprojected(
+    src: Any, grid: AnalysisGrid, *, resampling: Resampling, dtype: str
+) -> np.ndarray:
+    """Reproject the source's own overlap with the grid, leaving the rest missing.
+
+    The window is clipped to the source rather than read boundlessly: outside its own
+    extent there is nothing to reproject, and reading it would only carry a fill value
+    across the warp. The destination starts as NaN and GDAL writes only where the source
+    reaches, so uncovered ground keeps saying nothing.
+    """
+    out = np.full(grid.shape, np.nan, dtype=dtype)
+
+    asked = from_bounds(*_bounds_in(src.crs, grid), transform=src.transform)
+    # Out to whole pixels and one further, so the warp has neighbours to interpolate from
+    # at the edge of the grid rather than losing its last row and column to rounding.
+    left = math.floor(asked.col_off) - 1
+    top = math.floor(asked.row_off) - 1
+    right = math.ceil(asked.col_off + asked.width) + 1
+    bottom = math.ceil(asked.row_off + asked.height) + 1
+    try:
+        window = intersection(
+            Window(left, top, right - left, bottom - top), Window(0, 0, src.width, src.height)
+        )
+    except WindowError:
+        return out
+    if window.width <= 0 or window.height <= 0:
+        return out
+
+    reproject(
+        source=src.read(1, window=window),
+        destination=out,
+        src_transform=src.window_transform(window),
+        src_crs=src.crs,
+        dst_transform=grid.transform,
+        dst_crs=grid.crs,
+        src_nodata=src.nodata,
+        dst_nodata=np.nan,
+        resampling=resampling,
+    )
+    return out
 
 
 def _bounds_in(crs: Any, grid: AnalysisGrid) -> tuple[float, float, float, float]:

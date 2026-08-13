@@ -23,7 +23,7 @@ from .experiment import (
     GATE_BASELINE,
     ExperimentResult,
 )
-from .metrics import Delta
+from .metrics import Delta, wilson_interval
 
 GATE_STATEMENT = (
     "Component A, added to baseline_3 (FWI + FBP fuel type), produces a positive "
@@ -44,6 +44,81 @@ def _delta_line(label: str, delta: Delta | None) -> str:
         return f"- **{label}:** not evaluated"
     significance = "excludes zero" if delta.excludes_zero else "includes zero"
     return f"- **{label}:** {delta.point:+.4f} (95% CI {delta.low:+.4f} to {delta.high:+.4f}, {significance})"
+
+
+def _calibration_section(result: ExperimentResult, add: Any) -> None:
+    """The candidate's own reliability curve, band by band.
+
+    The models table gives three numbers for calibration and none of them says *where* a
+    model is wrong. An underwriter prices the tail, so being told that the top band promises
+    0.75 and delivers 0.22 is worth more than any summary statistic, and being told how many
+    cells that band holds is what stops the observation being over-read.
+    """
+    model = result.models.get(CANDIDATE)
+    if model is None or model.calibration is None:
+        return
+    curve = model.calibration
+
+    add("## Where the candidate's probabilities are wrong")
+    add("")
+    add("| predicted band | cells | mean predicted | observed | 95% interval on observed |")
+    add("|---|---|---|---|---|")
+
+    over: list[tuple[str, int]] = []
+    under: list[tuple[str, int]] = []
+    for centre, predicted, observed, count in zip(
+        curve.bin_centre, curve.predicted, curve.observed, curve.count, strict=True
+    ):
+        if count == 0:
+            continue
+        low, high = wilson_interval(observed, count)
+        band = f"{centre - 0.05:.2f}-{centre + 0.05:.2f}"
+        add(f"| {band} | {count:,} | {predicted:.3f} | {observed:.3f} | {low:.3f} to {high:.3f} |")
+        if predicted > high:
+            over.append((band, count))
+        elif predicted < low:
+            under.append((band, count))
+    add("")
+
+    total = sum(curve.count)
+
+    def _describe(bands: list[tuple[str, int]], direction: str) -> None:
+        if not bands:
+            add(f"- **{direction}:** no band, by this test.")
+            return
+        cells = sum(count for _, count in bands)
+        names = ", ".join(band for band, _ in bands)
+        share = 100.0 * cells / total if total else float("nan")
+        add(f"- **{direction}:** {names} — {cells:,} cells, {share:.1f}% of those scored.")
+
+    add(
+        "A band is listed below when its mean predicted probability falls outside the "
+        "interval on its own observed frequency, which is to say the disagreement is larger "
+        "than the band's population explains."
+    )
+    add("")
+    _describe(over, "Promises more than it delivers")
+    _describe(under, "Delivers more than it promises")
+    add("")
+    add(
+        "The gate is a statement about ranking, and ranking is what AUC-PR measures: the "
+        "order the candidate puts cells in is better than the baselines' by more than the "
+        "folds' noise, and its Brier score and ECE are the best of the five. The levels are "
+        "a separate claim and a weaker one. A cell scored above the bands listed as "
+        "over-confident should be read as *high risk relative to the others*, not as a "
+        "probability to multiply by an exposure."
+    )
+    add("")
+    add(
+        "The fix is a monotone recalibration fitted inside each training fold, and it is "
+        "deliberately not applied here. Recalibrating changes the pooled out-of-fold "
+        "probabilities, which changes the gate comparison, and the gate was written before "
+        "the first model was fitted. Correcting the levels after seeing the verdict would "
+        "make the verdict unfalsifiable. It belongs on the served score, where it can be "
+        "fitted, held out and reported on its own terms, not inside the experiment that is "
+        "supposed to be able to fail."
+    )
+    add("")
 
 
 def write_report(
@@ -134,17 +209,29 @@ def write_report(
 
     add("## What was left out")
     add("")
-    if context.get("excluded"):
-        for reason, count in context["excluded"].items():
-            add(f"- **{reason.replace('_', ' ')}:** {count:,}")
+    if "minimum_fire_ha" in context:
+        add(
+            f"- **Fires below {context['minimum_fire_ha']:,.0f} ha:** excluded by a stated "
+            "floor rather than a silent one. Small fires carry too few cells for a "
+            "within-fire severity comparison to mean anything."
+        )
+    for reason, count in (context.get("excluded") or {}).items():
+        add(f"- **{reason.replace('_', ' ')}:** {count:,}")
+    if context.get("exclusions_unrecorded_for"):
+        years_missing = ", ".join(str(year) for year in context["exclusions_unrecorded_for"])
+        add(
+            f"- **Not recorded:** the exclusion counts for {years_missing} were not written "
+            "when those labels were built and cannot be recovered without rebuilding them. "
+            "They are missing from the totals above rather than counted as zero."
+        )
     for note in result.notes:
         add(f"- {note}")
     add("")
 
     add("## Models")
     add("")
-    add("| model | features | AUC-PR | AUC-ROC | Brier | calibration gap |")
-    add("|---|---|---|---|---|---|")
+    add("| model | features | AUC-PR | AUC-ROC | Brier | ECE | worst bin | cells in it |")
+    add("|---|---|---|---|---|---|---|---|")
     for name, model in result.models.items():
         summary = model.summary
         marker = " **(candidate)**" if name == CANDIDATE else ""
@@ -157,8 +244,20 @@ def write_report(
             f"{summary.get('auc_pr_overall', float('nan')):.4f} | "
             f"{summary.get('auc_roc_overall', float('nan')):.4f} | "
             f"{summary.get('brier_overall', float('nan')):.4f} | "
-            f"{summary.get('calibration_max_gap', float('nan')):.3f} |"
+            f"{summary.get('calibration_expected_gap', float('nan')):.3f} | "
+            f"{summary.get('calibration_max_gap', float('nan')):.3f} | "
+            f"{int(summary.get('calibration_max_gap_count', 0)):,} |"
         )
+    add("")
+    add(
+        "Calibration is reported three ways because the obvious one misleads. The worst "
+        "bin is what an underwriter asks about first, but it is a maximum over ten bins "
+        "that hold anything from a handful of cells to thousands, and a model that spreads "
+        "its predictions across the full range is judged on a sparser tail than one that "
+        "never leaves the bottom. The cell count beside it says how much of the data that "
+        "number describes. ECE weights every bin by its population and is the column to "
+        "compare models on."
+    )
     add("")
 
     first = next(iter(result.models.values()), None)
@@ -170,6 +269,8 @@ def write_report(
             "prevalence, not 0.5."
         )
         add("")
+
+    _calibration_section(result, add)
 
     add("## Per-fold spread")
     add("")

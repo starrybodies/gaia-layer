@@ -27,7 +27,7 @@ from typing import Any
 import numpy as np
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from .metrics import Delta, Metrics, delta_with_ci, evaluate, pooled
+from .metrics import Calibration, Delta, Metrics, delta_with_ci, evaluate, pooled
 from .splits import Fold
 
 log = logging.getLogger(__name__)
@@ -78,6 +78,9 @@ class ModelResult:
     folds: list[Metrics] = field(repr=False)
     out_of_fold_probability: np.ndarray = field(repr=False)
     summary: dict[str, float] = field(default_factory=dict)
+    #: The pooled out-of-fold curve, kept rather than summarised away so the report can
+    #: show where a model is over-confident instead of only how far.
+    calibration: Calibration | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -218,8 +221,11 @@ def run_experiment(
                 "brier_overall": overall.brier,
                 "prevalence": overall.prevalence,
                 "calibration_max_gap": overall.calibration.max_gap,
+                "calibration_max_gap_count": float(overall.calibration.max_gap_count),
+                "calibration_expected_gap": overall.calibration.expected_gap,
                 "n_scored": float(overall.n),
             },
+            calibration=overall.calibration,
         )
 
     def compare(baseline: str, metric: str) -> Delta | None:

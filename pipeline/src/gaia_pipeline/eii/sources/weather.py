@@ -322,6 +322,50 @@ def _get(params: dict[str, str]) -> dict[str, Any]:
         return payload
 
 
+def noon_rows(hourly: dict[str, Any]) -> pa.Table:
+    """The noon observation of each day in an hourly Open-Meteo block.
+
+    Shared with the climate lattice, which asks the same question of many points at once.
+    One implementation, because two would eventually disagree about what noon is and the
+    codes are a running state that would carry the disagreement forward all season.
+
+    Nulls arrive as NaN rather than zero. A null temperature is not 0 degrees, and a null
+    rainfall is emphatically not a dry day: the rain branch of every code keys on whether
+    the day was wet.
+    """
+    stamps = [datetime.fromisoformat(value) for value in hourly["time"]]
+    noon = [index for index, stamp in enumerate(stamps) if stamp.hour == 12]
+    dates = [stamps[index].date() for index in noon]
+
+    def at_noon(name: str) -> np.ndarray:
+        series = hourly[name]
+        return np.array(
+            [np.nan if series[index] is None else float(series[index]) for index in noon],
+            dtype="float64",
+        )
+
+    # Rain accumulates over the twenty-four hours ending at noon, which is the interval the
+    # rain branches of the codes were fitted against.
+    precipitation = np.array(
+        [np.nan if value is None else float(value) for value in hourly["precipitation"]],
+        dtype="float64",
+    )
+    rain = np.array(
+        [float(np.nansum(precipitation[max(index - 23, 0) : index + 1])) for index in noon],
+        dtype="float64",
+    )
+
+    return pa.table(
+        {
+            "date": pa.array(dates, pa.date32()),
+            "temp_c": pa.array(at_noon("temperature_2m"), pa.float32()),
+            "rh_pct": pa.array(at_noon("relative_humidity_2m"), pa.float32()),
+            "wind_kmh": pa.array(at_noon("wind_speed_10m"), pa.float32()),
+            "rain_mm": pa.array(rain, pa.float32()),
+        }
+    )
+
+
 def noon_weather(lat: float, lon: float, start: date, end: date) -> tuple[pa.Table, SourceRecord]:
     """Noon local-standard-time weather for one point, which is what the codes expect.
 
@@ -347,33 +391,7 @@ def noon_weather(lat: float, lon: float, start: date, end: date) -> tuple[pa.Tab
         }
     )
 
-    hourly = payload["hourly"]
-    stamps = [datetime.fromisoformat(value) for value in hourly["time"]]
-
-    noon = [index for index, stamp in enumerate(stamps) if stamp.hour == 12]
-    dates = [stamps[index].date() for index in noon]
-
-    temp = np.array([hourly["temperature_2m"][index] for index in noon], dtype="float64")
-    rh = np.array([hourly["relative_humidity_2m"][index] for index in noon], dtype="float64")
-    wind = np.array([hourly["wind_speed_10m"][index] for index in noon], dtype="float64")
-
-    # Rain accumulates over the twenty-four hours ending at noon, which is the interval the
-    # rain branches of the codes were fitted against.
-    precipitation = np.array(hourly["precipitation"], dtype="float64")
-    rain = np.array(
-        [float(np.nansum(precipitation[max(index - 23, 0) : index + 1])) for index in noon],
-        dtype="float64",
-    )
-
-    table = pa.table(
-        {
-            "date": pa.array(dates, pa.date32()),
-            "temp_c": pa.array(temp, pa.float32()),
-            "rh_pct": pa.array(rh, pa.float32()),
-            "wind_kmh": pa.array(wind, pa.float32()),
-            "rain_mm": pa.array(rain, pa.float32()),
-        }
-    )
+    table = noon_rows(payload["hourly"])
 
     source = SourceRecord(
         dataset="ERA5-Land",

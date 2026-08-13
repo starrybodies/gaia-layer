@@ -23,6 +23,7 @@ resolution. The analysis grid is 30 m; the measurement behind it is not.
 from __future__ import annotations
 
 import logging
+import math
 
 import numpy as np
 from rasterio.enums import Resampling
@@ -132,8 +133,9 @@ def fetch(spine: Spine) -> tuple[np.ndarray, SourceRecord]:
     # downstream could detect.
     codes = read_window(FBP_URL, spine.grid, resampling=Resampling.nearest, dtype="float32")
 
-    # Anything outside the published legend is not a measurement: the source's own -9999,
-    # and the zero a boundless read leaves where the grid runs off the edge of the raster.
+    # Anything outside the published legend is not a measurement. `read_window` already
+    # hands back NaN for the source's own -9999 and for ground the raster does not cover;
+    # this catches a code the legend cannot name, which would be a change in the source.
     values: np.ndarray = np.where(np.isin(codes, _KNOWN_CODES), codes, np.nan).astype("float32")
 
     valid = np.isfinite(values)
@@ -176,3 +178,83 @@ def cell_fuel_type(spine: Spine) -> tuple[np.ndarray, np.ndarray, SourceRecord]:
     values, source = fetch(spine)
     winner, share = spine.majority(values)
     return winner, share, source
+
+
+# ----------------------------------------------------------------- rate of spread
+
+
+#: Head fire rate-of-spread coefficients from the FBP System's own equation 26,
+#: ROS = a * (1 - exp(-b * ISI)) ^ c, tabulated in Forestry Canada Fire Danger Group (1992),
+#: Development and Structure of the Canadian Forest Fire Behavior Prediction System,
+#: Information Report ST-X-3, Table 6. They are here so that the constraint layer can check
+#: a model's ordering against a published one rather than against an ordering somebody in
+#: this repository felt was about right.
+#:
+#: Only the benchmark types have coefficients of their own. The mixedwoods do not: their
+#: spread is defined by interpolation between the conifer and deciduous types in proportion
+#: to their conifer content, which `head_fire_rate_of_spread` does rather than inventing
+#: coefficients for a hundred and fourteen mixture codes.
+ROS_COEFFICIENTS: dict[int, tuple[float, float, float]] = {
+    1: (90.0, 0.0649, 4.5),  # C-1 spruce-lichen woodland
+    2: (110.0, 0.0282, 1.5),  # C-2 boreal spruce
+    3: (110.0, 0.0444, 3.0),  # C-3 mature jack or lodgepole pine
+    4: (110.0, 0.0293, 1.5),  # C-4 immature jack or lodgepole pine
+    5: (30.0, 0.0697, 4.0),  # C-5 red and white pine
+    6: (30.0, 0.0800, 3.0),  # C-6 conifer plantation
+    7: (45.0, 0.0305, 2.0),  # C-7 ponderosa pine / Douglas-fir
+    11: (30.0, 0.0232, 1.6),  # D-1 leafless aspen
+    12: (30.0, 0.0232, 1.6),  # D-2 green aspen, which FBP gives no spread of its own
+    13: (30.0, 0.0232, 1.6),  # D-1/D-2
+    21: (75.0, 0.0297, 1.3),  # S-1 jack or lodgepole pine slash
+    22: (40.0, 0.0438, 1.7),  # S-2 white spruce / balsam slash
+    23: (55.0, 0.0829, 3.2),  # S-3 coastal cedar / hemlock / Douglas-fir slash
+    31: (190.0, 0.0310, 1.4),  # O-1a matted grass
+    32: (250.0, 0.0350, 1.7),  # O-1b standing grass
+}
+
+#: The Initial Spread Index the ordering is evaluated at. Ten is the value the FBP System's
+#: own worked examples use and is a moderate-to-high spread day in the interior. The choice
+#: matters because the curves cross: at very low ISI the grass types have not yet pulled
+#: away from the conifers.
+REFERENCE_ISI = 10.0
+
+#: Conifer content is encoded in the mixedwood codes themselves — 415 is M-1 at 15% conifer.
+_MIXTURE_BASES: dict[int, str] = {400: "M-1", 500: "M-2", 600: "M-1/M-2"}
+_DEAD_FIR_BASES: dict[int, str] = {700: "M-3", 800: "M-4", 900: "M-3/M-4"}
+
+
+def head_fire_rate_of_spread(code: int, isi: float = REFERENCE_ISI) -> float:
+    """Head fire rate of spread in metres a minute, or NaN for a type that has none.
+
+    Non-fuel, water, urban and unclassified have no rate of spread — not a rate of zero,
+    which would place them in the ordering below a slow-burning aspen stand rather than
+    outside it — so they come back missing and the constraint layer drops them.
+
+    Mixedwood spread is interpolated between C-2 and D-1 by conifer content, which is what
+    the FBP System does for M-1 and M-2. The dead-fir types M-3 and M-4 are treated the same
+    way against their dead-fir fraction; that is a simplification of a separate published
+    equation and is flagged as such in the method note rather than presented as the system's
+    own answer.
+    """
+    if code in ROS_COEFFICIENTS:
+        a, b, c = ROS_COEFFICIENTS[code]
+        return float(a * (1.0 - math.exp(-b * isi)) ** c)
+
+    base = (code // 100) * 100
+    if base in _MIXTURE_BASES or base in _DEAD_FIR_BASES:
+        share = (code - base) / 100.0
+        conifer = head_fire_rate_of_spread(2, isi)
+        deciduous = head_fire_rate_of_spread(11, isi)
+        return float(share * conifer + (1.0 - share) * deciduous)
+
+    return float("nan")
+
+
+def rate_of_spread_ordering(codes: np.ndarray, isi: float = REFERENCE_ISI) -> np.ndarray:
+    """Reference rate of spread for an array of fuel codes. NaN where the type has none."""
+    values = np.asarray(codes, dtype="float64")
+    out = np.full(values.shape, np.nan)
+    for position, value in enumerate(values.ravel()):
+        if np.isfinite(value):
+            out.ravel()[position] = head_fire_rate_of_spread(int(value), isi)
+    return out

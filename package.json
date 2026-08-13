@@ -14,7 +14,9 @@
     "test": "pnpm run build:libs && pnpm -r test",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "build:libs": "pnpm --filter @gaia/core --filter @gaia/service --filter @gaia/api build"
+    "build:libs": "pnpm --filter @gaia/core --filter @gaia/service --filter @gaia/api build",
+    "demo:agent": "pnpm run build:libs && tsx demos/agent_walkthrough.ts",
+    "demo:kelowna": "uv run --project pipeline python demos/kelowna_retrodiction.py"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -37,6 +39,7 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.0",
     "vitest": "^3.2.4",
-    "next": "^15.5.4"
+    "next": "^15.5.4",
+    "@gaia/service": "workspace:*"
   }
 }

@@ -31,7 +31,16 @@ DEFAULT_BOOTSTRAP = 2000
 
 @dataclass(frozen=True)
 class Calibration:
-    """Predicted probability against observed frequency, in bins."""
+    """Predicted probability against observed frequency, in bins.
+
+    Three summaries, because one of them on its own misleads. `max_gap` is the worst a
+    model gets, which is what an underwriter asks about first, but it is a maximum over
+    bins that can hold anything from one cell to three thousand, and a boosted tree that
+    spreads its predictions across the whole range is scored on a sparser tail than a
+    timid model that never leaves the low bins. `max_gap_count` says how many cells stood
+    behind that worst number, and `expected_gap` weights every bin by its population, so
+    two models can be compared without the comparison turning on their emptiest bin.
+    """
 
     bin_centre: list[float]
     predicted: list[float]
@@ -39,14 +48,33 @@ class Calibration:
     count: list[int]
 
     @property
-    def max_gap(self) -> float:
-        """The largest distance between what was promised and what happened."""
-        gaps = [
-            abs(p - o)
+    def _populated(self) -> list[tuple[float, int]]:
+        return [
+            (abs(p - o), n)
             for p, o, n in zip(self.predicted, self.observed, self.count, strict=True)
             if n > 0
         ]
-        return max(gaps) if gaps else 0.0
+
+    @property
+    def max_gap(self) -> float:
+        """The largest distance between what was promised and what happened."""
+        gaps = self._populated
+        return max(gap for gap, _ in gaps) if gaps else float("nan")
+
+    @property
+    def max_gap_count(self) -> int:
+        """How many cells sat in the bin that produced `max_gap`."""
+        gaps = self._populated
+        return max(gaps)[1] if gaps else 0
+
+    @property
+    def expected_gap(self) -> float:
+        """Population-weighted mean gap: the expected calibration error."""
+        gaps = self._populated
+        total = sum(n for _, n in gaps)
+        if total == 0:
+            return float("nan")
+        return sum(gap * n for gap, n in gaps) / total
 
 
 @dataclass(frozen=True)
@@ -76,6 +104,27 @@ class Delta:
 
     def __str__(self) -> str:
         return f"{self.metric} {self.point:+.4f} (95% CI {self.low:+.4f} to {self.high:+.4f})"
+
+
+#: 95%, two-sided.
+_Z = 1.959963984540054
+
+
+def wilson_interval(rate: float, n: int) -> tuple[float, float]:
+    """A 95% interval on an observed frequency, by Wilson's score method.
+
+    The normal approximation collapses to a zero-width interval when a bin observes no
+    events at all, which is exactly the bin a calibration argument turns on. Wilson does
+    not, so it is the one that can answer whether a bin holding twenty-three cells is
+    genuinely over-confident or merely small.
+    """
+    if n <= 0 or not np.isfinite(rate):
+        return (float("nan"), float("nan"))
+
+    denominator = 1.0 + _Z * _Z / n
+    centre = (rate + _Z * _Z / (2 * n)) / denominator
+    half = (_Z / denominator) * float(np.sqrt(rate * (1.0 - rate) / n + _Z * _Z / (4 * n * n)))
+    return (max(0.0, centre - half), min(1.0, centre + half))
 
 
 def calibration_curve(y_true: np.ndarray, y_prob: np.ndarray, *, bins: int = 10) -> Calibration:

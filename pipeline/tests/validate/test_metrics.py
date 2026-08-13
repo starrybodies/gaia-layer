@@ -16,6 +16,7 @@ from gaia_pipeline.validate.metrics import (
     delta_with_ci,
     evaluate,
     pooled,
+    wilson_interval,
 )
 
 RNG = np.random.default_rng(11)
@@ -90,6 +91,78 @@ class TestCalibration:
         assert len(curve.count) == 10
         assert curve.count[-1] == 0
         assert np.isnan(curve.observed[-1])
+
+
+class TestHowMuchOfTheModelTheGapDescribes:
+    """`max_gap` is a maximum, so on its own it says nothing about how many cells it covers.
+
+    This is not a hypothetical complaint. The candidate model's headline calibration gap of
+    0.532 came from a bin holding 23 of 3,835 cells, while the baseline it was being
+    compared against had its worst bin over 108. Two numbers computed on populations five
+    times apart were being read as if they were comparable.
+    """
+
+    def test_the_worst_bin_reports_how_many_cells_stood_behind_it(self) -> None:
+        """One badly placed cell can set `max_gap`; the count is what says so."""
+        prob = np.concatenate([np.full(999, 0.05), np.array([0.95])])
+        y = np.zeros(1000, dtype=int)
+        curve = calibration_curve(y, prob)
+
+        assert curve.max_gap == pytest.approx(0.95, abs=1e-9)
+        assert curve.max_gap_count == 1
+
+    def test_a_single_stray_cell_barely_moves_the_expected_gap(self) -> None:
+        """Weighting by population is what makes the two models comparable."""
+        prob = np.concatenate([np.full(999, 0.05), np.array([0.95])])
+        y = np.zeros(1000, dtype=int)
+        curve = calibration_curve(y, prob)
+
+        assert curve.expected_gap == pytest.approx((999 * 0.05 + 1 * 0.95) / 1000, abs=1e-9)
+        assert curve.expected_gap < 0.06
+
+    def test_a_well_calibrated_model_has_a_small_expected_gap(self) -> None:
+        prob = RNG.uniform(size=20000)
+        y = (RNG.uniform(size=20000) < prob).astype(int)
+        assert calibration_curve(y, prob).expected_gap < 0.02
+
+    def test_a_model_wrong_everywhere_cannot_hide_behind_the_weighting(self) -> None:
+        """The expected gap is not a way of making real miscalibration look small."""
+        prob = RNG.uniform(size=20000)
+        y = (RNG.uniform(size=20000) < prob * 0.4).astype(int)
+        assert calibration_curve(y, prob).expected_gap > 0.15
+
+    def test_an_empty_curve_reports_nothing_rather_than_zero(self) -> None:
+        curve = calibration_curve(np.array([], dtype=int), np.array([]))
+
+        assert curve.max_gap_count == 0
+        assert np.isnan(curve.max_gap)
+        assert np.isnan(curve.expected_gap)
+
+
+class TestWilsonInterval:
+    def test_it_matches_the_published_value(self) -> None:
+        low, high = wilson_interval(0.5, 100)
+        assert low == pytest.approx(0.4038, abs=5e-4)
+        assert high == pytest.approx(0.5962, abs=5e-4)
+
+    def test_a_bin_that_observed_nothing_still_gets_a_width(self) -> None:
+        """The normal approximation gives zero width here, which is the useless answer."""
+        low, high = wilson_interval(0.0, 10)
+        assert low == 0.0
+        assert high > 0.25
+
+    def test_it_stays_inside_zero_and_one(self) -> None:
+        assert wilson_interval(1.0, 3) == (pytest.approx(0.4385, abs=5e-4), 1.0)
+
+    def test_an_empty_bin_reports_nothing_rather_than_zero(self) -> None:
+        assert all(np.isnan(bound) for bound in wilson_interval(0.0, 0))
+
+    def test_a_small_bin_is_wide_enough_to_be_honest(self) -> None:
+        """23 cells observing 5 events cannot rule out much, and must say so."""
+        low, high = wilson_interval(5 / 23, 23)
+        assert low < 0.10
+        assert high > 0.40
+        assert high < 0.75
 
 
 class TestPairedBootstrap:
