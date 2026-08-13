@@ -12,6 +12,7 @@ from datetime import date
 import pyarrow as pa
 import pytest
 
+from gaia_pipeline.eii import archive
 from gaia_pipeline.eii.archive import (
     FACT_COLUMNS,
     MethodRecord,
@@ -248,3 +249,60 @@ class TestCellsAndEvents:
         )
         row = catalog.execute("SELECT rule, outcome, detail FROM constraint_event").fetchone()
         assert row == ("monotonicity:dc", "clamped", "predicted severity fell as DC rose")
+
+
+class TestNonFiniteValuesDoNotReachTheArchive:
+    """NaN and NULL both mean unmeasured, and carrying two spellings gives three answers.
+
+    The 2023 Component A partition held 460 NaNs where it meant NULL. A reader counting
+    `value IS NOT NULL` scored them; a reader sorting on value put them wherever its
+    collation happened to; JSON serialised them to `null` anyway. One boundary, one spelling.
+    """
+
+    def _facts(self, values: list[float]) -> pa.Table:
+        n = len(values)
+        return pa.table(
+            {
+                "h3": pa.array([f"8812d0232{index}fffff" for index in range(n)]),
+                "period_start": pa.array([date(2023, 1, 1)] * n, pa.date32()),
+                "period_end": pa.array([date(2023, 8, 14)] * n, pa.date32()),
+                "component": pa.array(["eii"] * n),
+                "value": pa.array(values, pa.float32()),
+                "uncertainty_type": pa.array(["standard_error"] * n),
+                "uncertainty_value": pa.array([float("nan")] * n, pa.float32()),
+                "valid_fraction": pa.array([1.0] * n, pa.float32()),
+                "method_id": pa.array(["m"] * n),
+                "run_id": pa.array(["r"] * n),
+                "source_set_id": pa.array(["s"] * n),
+                "constraint_flags": pa.array([""] * n),
+            }
+        )
+
+    def test_a_nan_is_written_as_null(self) -> None:
+        table = archive._null_out_non_finite(
+            self._facts([1.0, float("nan"), 2.0, float("inf"), -float("inf")])
+        )
+        values = table.column("value").to_pylist()
+
+        assert values[0] == pytest.approx(1.0)
+        assert values[1] is None
+        assert values[2] == pytest.approx(2.0)
+        assert values[3] is None and values[4] is None
+
+    def test_it_reaches_every_float_column_not_only_the_value(self) -> None:
+        table = archive._null_out_non_finite(self._facts([1.0, 2.0]))
+        assert table.column("uncertainty_value").to_pylist() == [None, None]
+
+    def test_a_finite_table_is_left_exactly_as_it_was(self) -> None:
+        facts = self._facts([1.0, 2.0])
+        facts = facts.set_column(
+            facts.column_names.index("uncertainty_value"),
+            "uncertainty_value",
+            pa.array([0.1, 0.2], pa.float32()),
+        )
+        assert archive._null_out_non_finite(facts).equals(facts)
+
+    def test_the_string_columns_are_untouched(self) -> None:
+        table = archive._null_out_non_finite(self._facts([float("nan")]))
+        assert table.column("h3").to_pylist() == ["8812d02320fffff"]
+        assert table.column("component").to_pylist() == ["eii"]

@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
+import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 from ulid import ULID
@@ -308,6 +309,34 @@ def write_cells(conn: duckdb.DuckDBPyConnection, cells: pa.Table) -> int:
     return int(cells.num_rows)
 
 
+def _null_out_non_finite(facts: pa.Table) -> pa.Table:
+    """NaN and infinity become NULL on the way into the archive.
+
+    A NaN is a float's way of saying "not a number here"; NULL is the archive's. Both mean
+    unmeasured, and carrying two spellings of it across the boundary makes every consumer
+    handle both or handle one and be wrong. The 2023 Component A partition held 460 NaNs
+    where it meant NULL, and a reader counting `value IS NOT NULL` scored them, a reader
+    sorting on value put them wherever its collation happened to, and JSON turned them into
+    `null` anyway — three different answers to one question.
+
+    Only float columns are touched, and only the non-finite entries in them.
+    """
+    for name in facts.column_names:
+        column = facts.column(name)
+        if not pa.types.is_floating(column.type):
+            continue
+        values = np.asarray(column.combine_chunks(), dtype="float64")
+        finite = np.isfinite(values)
+        if finite.all():
+            continue
+        facts = facts.set_column(
+            facts.column_names.index(name),
+            name,
+            pa.array(values, type=column.type, mask=~finite),
+        )
+    return facts
+
+
 def write_component(
     conn: duckdb.DuckDBPyConnection,
     archive_dir: Path,
@@ -334,7 +363,7 @@ def write_component(
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "part.parquet"
 
-    pq.write_table(facts.select(list(FACT_COLUMNS)), path, compression="zstd")
+    pq.write_table(_null_out_non_finite(facts.select(list(FACT_COLUMNS))), path, compression="zstd")
 
     conn.execute(
         """
