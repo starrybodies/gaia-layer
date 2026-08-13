@@ -8,7 +8,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
 import { CLAIMS_DDL } from "./claims-schema.js";
 import { LakeUnavailableError } from "./errors.js";
@@ -27,6 +27,34 @@ function dataDir(): string {
  * runs: a standalone API from `api/`, a Next server from `console/`, and a serverless
  * function whose root is neither. `GAIA_DUCKDB_PATH` short-circuits all of it.
  */
+/**
+ * The cell grid, which lives beside the lake rather than inside it.
+ *
+ * `indicator_cell` is 950,832 rows and about a hundred megabytes of the lake's hundred and
+ * seven — mostly two long identifier columns repeated a million times. Written as Parquet
+ * with dictionary encoding it is 17.8 MB for the same rows, and Vercel refuses to upload any
+ * single file over a hundred, so the file that used to be too big to deploy now is not.
+ *
+ * It is attached as a view with the same name, so nothing that queries `lake.indicator_cell`
+ * had to change. The path is resolved at connection time rather than baked into a stored
+ * view, because a view remembers the absolute path it was created with and the pipeline's
+ * working directory is not the function's.
+ */
+/**
+ * The relation every query reads the cell grid from.
+ *
+ * Deliberately unqualified. It resolves to a view in the connection's own in-memory
+ * database, which is either the Parquet file beside the lake or the lake's own table, and no
+ * caller has to know which.
+ */
+export const CELLS = "indicator_cell";
+
+export function cellsPath(): string {
+  const explicit = process.env["GAIA_CELLS_PATH"];
+  if (explicit !== undefined && explicit !== "") return resolve(explicit);
+  return resolve(dirname(lakePath()), "cells.parquet");
+}
+
 export function lakePath(): string {
   const explicit = process.env["GAIA_DUCKDB_PATH"];
   if (explicit !== undefined && explicit !== "") return resolve(explicit);
@@ -78,6 +106,22 @@ export async function connect(): Promise<DuckDBConnection> {
     instance = await DuckDBInstance.create(":memory:");
     connection = await instance.connect();
     await connection.run(`ATTACH '${lake.replace(/'/g, "''")}' AS lake (READ_ONLY)`);
+
+    // Where the cell grid comes from is decided once, here, and every query just uses the
+    // name. A lake attached read-only cannot hold a new view, so the view lives in the
+    // in-memory database that the connection is already rooted in.
+    //
+    // Either source is valid. A lake built after the split has the rows in Parquet beside
+    // it; one built before has them inside it. Falling back rather than failing means an
+    // older lake still serves, and means the split is not a flag day for anyone running the
+    // pipeline on their own machine.
+    const cells = cellsPath();
+    await connection.run(
+      existsSync(cells)
+        ? `CREATE OR REPLACE VIEW ${CELLS} AS ` +
+            `SELECT * FROM read_parquet('${cells.replace(/'/g, "''")}')`
+        : `CREATE OR REPLACE VIEW ${CELLS} AS SELECT * FROM lake.indicator_cell`,
+    );
     return connection;
   } catch (cause) {
     connection = undefined;

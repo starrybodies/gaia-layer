@@ -69,6 +69,20 @@ const config: NextConfig = {
     // function starts without them.
     "/api/v1/**": [
       "../data/gaia.duckdb",
+      // The v0.1 cell grid, split out of the lake because Vercel refuses to upload any
+      // single file over 100 MB. 950,832 rows: about 100 MB inside DuckDB, 17.8 MB as
+      // Parquet, attached under its old name at connection time so no query changed.
+      "../data/cells.parquet",
+      // The v0.2 EII archive: the catalog every answer resolves provenance against, the six
+      // component partitions, and the two artifacts the diligence and portfolio surfaces
+      // render. Listed explicitly for the same reason the lake is — nothing traces a path
+      // that is only ever built at runtime.
+      "../data/eii/catalog.duckdb",
+      "../data/eii/component=*/year=*/*.parquet",
+      "../data/eii/dossier.json",
+      "../data/eii/demo-book.json",
+      "../data/eii/validation.json",
+      "../data/eii/diagnostics.json",
       "../node_modules/.pnpm/@duckdb+node-api@*/**",
       "../node_modules/.pnpm/@duckdb+node-bindings@*/**",
       "../node_modules/.pnpm/@duckdb+node-bindings-linux-x64@*/**",

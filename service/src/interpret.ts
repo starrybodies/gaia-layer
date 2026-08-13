@@ -18,7 +18,7 @@
 
 import { CATEGORICAL_INDICATORS, dryingDirection } from "@gaia/core";
 
-import { query, num, str } from "./db.js";
+import { CELLS, query, num, str } from "./db.js";
 import { IndicatorNotInterpretableError, NoDataForPeriodError } from "./errors.js";
 
 /** `val_abc:12:34` -> `12:34`. Value ids never contain a colon. */
@@ -104,7 +104,7 @@ const TERRAIN_CTE = `
            max(CASE WHEN indicator = 'aspect_deg' THEN value END) AS aspect,
            max(CASE WHEN indicator = 'slope_deg' THEN value END) AS slope,
            max(CASE WHEN indicator = 'twi' THEN value END) AS twi
-    FROM lake.indicator_cell
+    FROM ${CELLS}
     WHERE aoi_id = $1 AND indicator IN ('elevation_m', 'aspect_deg', 'slope_deg', 'twi')
     GROUP BY 1
   )`;
@@ -192,7 +192,7 @@ export async function interpretLayer(
             quantile_cont(value, 0.50) AS p50, quantile_cont(value, 0.75) AS p75,
             quantile_cont(value, 0.90) AS p90,
             any_value(period_end) AS period_end
-     FROM lake.indicator_cell
+     FROM ${CELLS}
      WHERE aoi_id = $1 AND indicator = $2 AND period_start = $3 AND value IS NOT NULL`,
     base,
   );
@@ -217,7 +217,7 @@ export async function interpretLayer(
   const layerCte = `
     layer AS (
       SELECT ${CELL_POSITION} AS pos, value
-      FROM lake.indicator_cell
+      FROM ${CELLS}
       WHERE aoi_id = $1 AND indicator = $2 AND period_start = $3 AND value IS NOT NULL
     )`;
 
@@ -345,7 +345,7 @@ export async function interpretLayer(
       `SELECT avg(value) AS mean,
               avg(CASE WHEN value < 0 THEN 1.0 ELSE 0.0 END) AS drier,
               avg(CASE WHEN value < -0.05 THEN 1.0 ELSE 0.0 END) AS much_drier
-       FROM lake.indicator_cell
+       FROM ${CELLS}
        WHERE aoi_id = $1 AND indicator = $2 AND period_start = $3 AND value IS NOT NULL`,
       [aoiId, departureLayer, periodStart],
     );

@@ -9,6 +9,7 @@
 import { assertProvenanced } from "@gaia/core";
 import { claimIdFor, recordClaims, type ClaimRecord } from "./claims.js";
 import {
+  CELLS,
   isoDate,
   isoTimestamp,
   json,
@@ -795,7 +796,7 @@ export async function getCells(
   const rows = await query(
     `SELECT cell_id, value_id, west, south, east, north, value, valid_fraction, confidence,
             cell_size_m, period_start, period_end
-     FROM lake.indicator_cell
+     FROM ${CELLS}
      WHERE aoi_id = $1 AND indicator = $2 AND period_start = $3`,
     [aoiId, indicator, periodStart],
   );
@@ -928,7 +929,7 @@ export async function listLayers(aoiId: string): Promise<unknown> {
   const rows = await query(
     `SELECT indicator, count(DISTINCT period_start) AS periods, count(*) AS cells,
             min(period_start) AS first_period, max(period_start) AS last_period
-     FROM lake.indicator_cell WHERE aoi_id = $1
+     FROM ${CELLS} WHERE aoi_id = $1
      GROUP BY indicator ORDER BY indicator`,
     [aoiId],
   );

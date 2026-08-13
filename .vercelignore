@@ -13,6 +13,9 @@ dist
 data/lake
 data/manifests
 data/claims.duckdb
+# 448 MB of v0.1 pipeline scratch. Not read at serve time, and it was being uploaded on every
+# deploy: the source upload was 567 MB, of which this was four fifths.
+data/cache
 
 # The v0.2 EII archive ships — the catalog and the component partitions are what every
 # answer is read from. These four do not.
