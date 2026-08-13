@@ -14,6 +14,24 @@ data/lake
 data/manifests
 data/claims.duckdb
 
+# The v0.2 EII archive ships — the catalog and the component partitions are what every
+# answer is read from. These four do not.
+#
+# The audit log is a write target, not a read one. The serverless filesystem is read-only, so
+# a shipped copy could never be appended to; GAIA_EII_AUDIT_PATH points at /tmp instead and
+# the log starts empty each cold start, which is the same bargain the claim ledger makes.
+data/eii/audit.duckdb
+data/eii/audit.duckdb.wal
+# Validation inputs. The gate and the diagnostics read these; nothing served does.
+data/eii/features.parquet
+data/eii/terrain.parquet
+data/eii/structure.parquet
+data/eii/fuel.parquet
+data/eii/labels
+# Pipeline scratch: the fetched climate lattice, the spine, the rasterised index. 24 MB of
+# things that exist so a rebuild can resume, and that no served answer reads.
+data/eii/cache
+
 pipeline/.venv
 **/__pycache__
 **/.pytest_cache

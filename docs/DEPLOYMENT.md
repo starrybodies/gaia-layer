@@ -1,6 +1,6 @@
 # Deployment
 
-**Live:** <https://gaia-layer.vercel.app>
+**Live:** <https://layer.gaiaai.xyz> (also <https://gaia-layer.vercel.app>)
 
 | Path | What |
 |---|---|
