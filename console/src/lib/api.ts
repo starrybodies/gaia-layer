@@ -291,6 +291,136 @@ export interface Interpretation {
   readings: string[];
 }
 
+// --- the wildfire Ecosystem Integrity Index -------------------------------------
+// Shapes mirror `@gaia/service`. They are re-declared rather than imported because the
+// console talks to the layer over HTTP like any other consumer, and importing the service's
+// types would let a change reach the screen without going through the wire.
+
+export interface DossierFigure {
+  label: string;
+  value: number | null;
+  display: string;
+  note: string;
+  interval: { low: number; high: number; excludes_zero: boolean; display: string } | null;
+  source: string;
+}
+
+export interface DossierSection {
+  id: string;
+  title: string;
+  statement: string;
+  kind: "figures" | "table" | "list";
+  disclosure: boolean;
+  caveat: string;
+  columns: string[];
+  rows: (string | number)[][];
+  figures: DossierFigure[];
+}
+
+export interface Dossier {
+  generated: string;
+  run_id: string;
+  method_id: string;
+  method_version: string;
+  source_set_id: string;
+  verdict: string | null;
+  gate_statement: string | null;
+  disclosure_count: number;
+  sections: DossierSection[];
+}
+
+export interface DemoBookCell {
+  h3: string;
+  h3_parent: string;
+  exposures: number;
+  footprint_m2: number;
+  synthetic_insured_value: number;
+}
+
+export interface DemoBook {
+  synthetic: true;
+  label: string;
+  warning: string;
+  privacy: string;
+  generated: string;
+  resolution: number;
+  parent_resolution: number;
+  footprint_source: Record<string, string>;
+  cells: DemoBookCell[];
+  totals: { cells: number; exposures: number; synthetic_insured_value: number };
+}
+
+export interface RankedCell {
+  h3: string;
+  h3_parent: string;
+  rank: number | null;
+  value: number | null;
+  uncertainty_value: number | null;
+  valid_fraction: number;
+  constraint_flags: string;
+  weight: number | null;
+  period_start: string;
+  period_end: string;
+  method_id: string;
+  run_id: string;
+  source_set_id: string;
+}
+
+export interface ParentRollup {
+  h3_parent: string;
+  cells: number;
+  scored: number;
+  unmeasured: number;
+  mean_index: number | null;
+  weighted_index: number | null;
+  worst_cell: string | null;
+  worst_value: number | null;
+  weight: number;
+}
+
+export interface PortfolioRanking {
+  as_of: string | null;
+  component: string;
+  requested: number;
+  scored: number;
+  unmeasured: string[];
+  cells: RankedCell[];
+  parents: ParentRollup[];
+  weighted_index: number | null;
+  orientation: string;
+  method_justification: string;
+  audit: { entry_id: string; tool: string; called: string };
+}
+
+export interface CellChange {
+  h3: string;
+  h3_parent: string;
+  before: number | null;
+  after: number | null;
+  change: number | null;
+  direction: "worse" | "better" | "unchanged" | "unmeasurable";
+  weight: number | null;
+  before_run_id: string;
+  after_run_id: string;
+}
+
+export interface PortfolioChange {
+  component: string;
+  before: { year: number; as_of: string | null; scored: number };
+  after: { year: number; as_of: string | null; scored: number };
+  requested: number;
+  comparable: number;
+  not_comparable: string[];
+  mean_change: number | null;
+  weighted_change: number | null;
+  worsened: number;
+  improved: number;
+  cells: CellChange[];
+  orientation: string;
+  method_justification: string;
+  audit: { entry_id: string; tool: string; called: string };
+}
+
 export const api = {
   layers: (aoiId: string) => request<LayerInfo[]>(`/v1/layers/${aoiId}`),
 
@@ -337,4 +467,20 @@ export const api = {
         };
       }[];
     }>(`/v1/cells/${aoiId}/${indicator}/${periodStart}`),
+
+  dossier: () => request<Dossier>("/v1/eii/dossier"),
+
+  demoBook: () => request<DemoBook>("/v1/eii/demo-book"),
+
+  portfolioRanking: (cells: { h3: string; weight?: number }[], year?: number) =>
+    request<PortfolioRanking>("/v1/eii/portfolio-ranking", {
+      method: "POST",
+      body: JSON.stringify({ cells, year }),
+    }),
+
+  portfolioChange: (cells: { h3: string; weight?: number }[], before: number, after: number) =>
+    request<PortfolioChange>("/v1/eii/portfolio-change", {
+      method: "POST",
+      body: JSON.stringify({ cells, before, after }),
+    }),
 };

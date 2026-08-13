@@ -15,6 +15,7 @@
     "@gaia/api": "workspace:*",
     "@gaia/core": "workspace:*",
     "@gaia/service": "workspace:*",
+    "h3-js": "^4.5.0",
     "hono": "^4.13.1",
     "maplibre-gl": "^5.24.0",
     "next": "^15.5.4",
