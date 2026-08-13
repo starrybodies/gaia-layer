@@ -1,7 +1,7 @@
 # Gaia — Ecological Intelligence Layer
 
-**Live: <https://gaia-layer.vercel.app>** — map, substrate report, and an agent querying the
-layer with its full tool transcript shown.
+**Live: <https://gaia-layer.vercel.app>** — the map, the substrate report, an agent querying
+the layer with its full tool transcript shown, and the two v0.2 surfaces below.
 
 Agent-native ecological ground truth. Validated, provenance-tracked ecological state for a
 defined area, served to AI agents over MCP and to everything else over REST.
@@ -42,6 +42,55 @@ make setup && make seed && make dev
 ```
 
 Full detail in [`docs/RUNBOOK.md`](docs/RUNBOOK.md). Deployment in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+## v0.2 — the Ecosystem Integrity Index
+
+An index for wildfire underwriting over the Okanagan: 43,303 H3 resolution-8 cells, five
+components, each a *departure* from the same cell's own reference rather than a level.
+Structure, water balance, riparian condition, fuel moisture, drought. Higher is worse.
+
+Only Component A has been through a validation gate. The other four are built and served and
+say so. The weights are equal because inventing a weighting to look sophisticated would be
+inventing a finding.
+
+### Two surfaces
+
+**`/diligence`** — built for a model-validation team trying to break it. Every figure on it
+is computed in the pipeline and persisted with the run, method record and source set that
+produced it; the page renders and never calculates. It leads with the findings that weaken
+the claim, because an analyst should not discover anything there that the page did not tell
+them first:
+
+- under leave-one-fire-out the gate's own baseline scores **0.1039** against a prevalence of
+  **0.1064** — at or below the no-skill line, so the candidate's margin is not "beats a
+  working fire-weather model";
+- refitting without fire weather, and without fuel type, each score marginally *higher*;
+- the Component A composite column has a permutation importance of **-0.0030** while its
+  three inputs carry the lift;
+- 7 of 42 fires are scorable, three study years carry no high-severity cell at all, and the
+  misses concentrate where fire weather is worst (ISI 9.35 against 5.56).
+
+**`/portfolio`** — a book of cells ranked at res-8, rolled up to res-7, and compared across
+two as-of dates, on a map. A client sends H3 cell identifiers and their own exposure values;
+there is no field for an address or a coordinate and no code path that would use one. Cells
+the archive cannot score are named and drawn, never dropped — a portfolio statistic that
+improves as coverage falls is the failure this surface exists to make visible.
+
+The demo book is built from Overture's open building footprints. Its values are invented and
+it says so in the label, the warning and the field name.
+
+## Sources, and the discipline about them
+
+Every source is open and read anonymously — no account, no token, no key. That constraint is
+load-bearing and it is also where most of the work went: a source that catalogues fine and
+returns nothing is the recurring failure of this build, and
+[`docs/DIVERGENCES.md`](docs/DIVERGENCES.md) is twenty-one entries of it. ERA5-Land answering
+`null` for variables it does not carry. A DEM declaring no nodata and fabricating a sea-level
+plain. `h3-js` answering an invalid cell id with a hexagon in Arctic Russia. An archive
+holding NaN where it meant NULL.
+
+Read that file before trusting anything here. It is the most useful document in the
+repository.
 
 ## v0.1 scope
 
