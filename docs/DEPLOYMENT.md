@@ -1,6 +1,9 @@
 # Deployment
 
-**Live:** <https://layer.gaiaai.xyz> (also <https://gaia-layer.vercel.app>)
+**Live:** <https://gaia-layer.vercel.app>
+
+**Intended:** <https://layer.gaiaai.xyz>, which needs one DNS record that does not exist yet —
+see "The custom domain" below.
 
 | Path | What |
 |---|---|
@@ -103,3 +106,72 @@ is no separate data step.
   ```
 - **The Groq free tier is rate limited** at 8,000 tokens per minute across the whole
   deployment, so concurrent playground users will see each other's limit.
+
+## The custom domain
+
+`layer.gaiaai.xyz` is not serving this yet, and the missing piece is in Cloudflare rather
+than in Vercel.
+
+`gaiaai.xyz` uses Cloudflare nameservers (`amit`/`rita.ns.cloudflare.com`), not Vercel's, and
+it has a wildcard `*.gaiaai.xyz` record proxied through Cloudflare. So `layer.gaiaai.xyz`
+already resolves — to Cloudflare, which answers **525** because the origin behind the
+wildcard cannot complete a TLS handshake. Nothing is served there; the name is simply caught
+by the wildcard.
+
+That wildcard is also why `vercel alias set` fails: Vercel cannot issue a certificate for a
+name whose traffic Cloudflare is intercepting and whose DNS does not point at Vercel.
+
+The fix is one record, and the pattern is the one `times.gaiaai.xyz` already uses:
+
+| Type | Name | Content | Proxy |
+|---|---|---|---|
+| CNAME | `layer` | `cname.vercel-dns.com` | **DNS only** (grey cloud) |
+
+Proxy status matters. `times` is DNS-only and works; `eor` and `futures` resolve straight to
+Vercel's `76.76.21.21`. A proxied record puts Cloudflare in front of Vercel's certificate and
+reproduces the 525.
+
+Once the record exists:
+
+```bash
+vercel alias set <latest-production-deployment>.vercel.app layer.gaiaai.xyz
+```
+
+Vercel issues the certificate on its own once the name resolves to it, usually within a
+minute.
+
+## The 100 MB file limit, and what it forced
+
+Vercel refuses to upload any single file over 100 MB. `data/gaia.duckdb` had grown to 107,
+which is a deployment failure that arrives with no warning and no relationship to anything
+recently changed — the lake simply crossed a line.
+
+Almost all of it was one table. `indicator_cell` is 950,832 rows whose `cell_id` and
+`value_id` columns average 45 and 28 characters and repeat a million times; inside DuckDB
+that is about 100 MB, and as Parquet with dictionary encoding it is 17.8. So the grid lives
+in `data/cells.parquet` and the lake beside it is 5.8 MB.
+
+`connect()` decides where the grid comes from and every query just uses the name `CELLS`. A
+read-only attachment cannot hold a new view, so the view is created in the connection's own
+in-memory database; when the Parquet is absent it is defined over `lake.indicator_cell`
+instead, so a lake built before the split still serves.
+
+Re-splitting after an ingest:
+
+```bash
+uv run --directory pipeline python - <<'EOF'
+import duckdb, os
+c = duckdb.connect(":memory:")
+c.execute("ATTACH '../data/gaia.duckdb' AS old (READ_ONLY)")
+c.execute("COPY (SELECT * FROM old.indicator_cell) TO '../data/cells.parquet' "
+          "(FORMAT PARQUET, COMPRESSION ZSTD)")
+c.execute("ATTACH '../data/gaia.split.duckdb' AS fresh")
+c.execute("COPY FROM DATABASE old TO fresh")
+c.execute("DROP TABLE fresh.indicator_cell")
+EOF
+```
+
+DuckDB does not reclaim the dropped table's pages, so the result has to be copied once more
+into a fresh file before it is actually small. Check row counts both directions before
+replacing anything: `EXCEPT` in both directions is the check that catches a lost column,
+which a row count does not.
