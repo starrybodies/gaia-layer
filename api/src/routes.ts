@@ -9,6 +9,15 @@
 import {
   ServiceError,
   comparePeriods,
+  compareBaseline,
+  explainScore,
+  getComponent,
+  getEii,
+  portfolioChange,
+  portfolioRanking,
+  portfolioScan,
+  readDemoBook,
+  readDossier,
   getCells,
   getEcologicalState,
   getProvenance,
@@ -144,4 +153,91 @@ routes.get("/v1/interpretation/:aoiId/:indicator/:periodStart", async (c) => {
       c.req.param("periodStart"),
     ),
   );
+});
+
+// --- the wildfire Ecosystem Integrity Index ---------------------------------------
+// The v0.2 archive. Every handler here is parse, call, return, for the same reason as
+// above: an agent reaching these through MCP and an analyst reaching them through the
+// console must be told the same thing.
+
+const h3Schema = z
+  .string()
+  .regex(
+    /^[0-9a-fA-F]{15,16}$/,
+    "expected an H3 cell id. This surface takes cell identifiers only — never an address " +
+      "or a coordinate.",
+  );
+
+// `weight` is the caller's own exposure measure. The layer weights a mean by it and does
+// not store it; there is deliberately no field here for anything that locates a risk.
+const bookSchema = z.object({
+  cells: z
+    .array(z.object({ h3: h3Schema, weight: z.number().finite().nonnegative().optional() }))
+    .min(1)
+    .max(20_000),
+  component: z.string().optional(),
+});
+
+routes.get("/v1/eii/dossier", async (c) => {
+  return c.json(readDossier());
+});
+
+routes.get("/v1/eii/demo-book", async (c) => {
+  return c.json(readDemoBook());
+});
+
+routes.get("/v1/eii/baseline", async (c) => {
+  return c.json(await compareBaseline());
+});
+
+routes.get("/v1/eii/cell/:h3", async (c) => {
+  const h3 = await parse(h3Schema, c.req.param("h3"));
+  const year = c.req.query("year");
+  return c.json(await getEii({ h3, year: year === undefined ? undefined : Number(year) }));
+});
+
+routes.get("/v1/eii/cell/:h3/explain", async (c) => {
+  const h3 = await parse(h3Schema, c.req.param("h3"));
+  const year = c.req.query("year");
+  return c.json(await explainScore({ h3, year: year === undefined ? undefined : Number(year) }));
+});
+
+routes.get("/v1/eii/cell/:h3/component/:component", async (c) => {
+  const h3 = await parse(h3Schema, c.req.param("h3"));
+  const year = c.req.query("year");
+  return c.json(
+    await getComponent({
+      h3,
+      component: c.req.param("component"),
+      year: year === undefined ? undefined : Number(year),
+    }),
+  );
+});
+
+routes.post("/v1/eii/portfolio-scan", async (c) => {
+  const body = await parse(
+    z.object({
+      cells: z.array(h3Schema).min(1).max(20_000),
+      year: z.number().int().optional(),
+      threshold: z.number().finite().optional(),
+    }),
+    await c.req.json(),
+  );
+  return c.json(await portfolioScan(body));
+});
+
+routes.post("/v1/eii/portfolio-ranking", async (c) => {
+  const body = await parse(
+    bookSchema.extend({ year: z.number().int().optional() }),
+    await c.req.json(),
+  );
+  return c.json(await portfolioRanking(body));
+});
+
+routes.post("/v1/eii/portfolio-change", async (c) => {
+  const body = await parse(
+    bookSchema.extend({ before: z.number().int(), after: z.number().int() }),
+    await c.req.json(),
+  );
+  return c.json(await portfolioChange(body));
 });

@@ -15,3 +15,8 @@ export { claimIdFor } from "./claims.js";
 export { close, isPopulated, lakePath } from "./db.js";
 export * from "./interpret.js";
 export * from "./tools.js";
+export * from "./eii.js";
+export * from "./eii-db.js";
+export * from "./eii-audit.js";
+export * from "./eii-portfolio.js";
+export * from "./eii-artifacts.js";

@@ -12,6 +12,7 @@ export type ErrorCode =
   | "no_data_for_period"
   | "claim_not_found"
   | "indicator_unavailable"
+  | "artifact_unavailable"
   | "lake_unavailable"
   | "invalid_request"
   | "internal";

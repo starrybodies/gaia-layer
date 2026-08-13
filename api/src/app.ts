@@ -56,7 +56,8 @@ app.use("*", apiKeyAuth);
 
 app.onError((err, c) => {
   if (err instanceof ServiceError) {
-    const status = err.code === "claim_not_found" || err.code === "aoi_not_ingested" ? 404 : 400;
+    const notFound = new Set(["claim_not_found", "aoi_not_ingested", "artifact_unavailable"]);
+    const status = notFound.has(err.code) ? 404 : 400;
     return c.json(err.toResponse(), status);
   }
   console.error("[api] unhandled error", err);
