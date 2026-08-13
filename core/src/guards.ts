@@ -28,6 +28,23 @@ const REQUIRED_ALONGSIDE_VALUE = [
 ] as const;
 
 /**
+ * The second citable shape: an archived figure.
+ *
+ * The claim shape above is for a measurement about a place, assembled on read and handed
+ * back with its chain inline. Not every served number is one. The v0.2 archive persists
+ * facts with their provenance *by reference* — `run_id`, `method_id`, `source_set_id` —
+ * because inlining the chain onto twenty-five million rows costs gigabytes to say one thing
+ * repeatedly, and the diligence dossier persists validation statistics the same way.
+ *
+ * Those numbers are citable, which is the property the guard actually protects: a reader can
+ * take the run id and reproduce the figure. So they satisfy the guard by carrying all three
+ * references, and a number carrying neither shape still fails. This is an additional way to
+ * be provenanced, not an exemption from being provenanced — there is deliberately no key
+ * that switches the check off.
+ */
+const REQUIRED_FOR_ARCHIVED_FIGURE = ["run_id", "method_id", "source_set_id"] as const;
+
+/**
  * Keys whose contents are opaque payloads rather than served claims. A `parameters` bag
  * recording that a processing step ran with `{ value: 3 }` is not a claim, and must not be
  * treated as one. Opacity propagates to descendants, which is why `confidence_basis`
@@ -55,9 +72,19 @@ export function findProvenanceViolations(payload: unknown, rootPath = "$"): Guar
     if (!isRecord(node)) return;
 
     if (!opaque && "value" in node) {
-      for (const key of REQUIRED_ALONGSIDE_VALUE) {
-        if (!(key in node)) {
-          violations.push({ path, reason: `carries "value" but no "${key}"` });
+      const archived = REQUIRED_FOR_ARCHIVED_FIGURE.every(
+        (key) => typeof node[key] === "string" && (node[key] as string) !== "",
+      );
+      if (!archived) {
+        for (const key of REQUIRED_ALONGSIDE_VALUE) {
+          if (!(key in node)) {
+            violations.push({
+              path,
+              reason:
+                `carries "value" but no "${key}", and does not carry the archived-figure ` +
+                "references (run_id, method_id, source_set_id) either",
+            });
+          }
         }
       }
       const provenance = node["provenance"];

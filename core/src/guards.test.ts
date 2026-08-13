@@ -108,3 +108,41 @@ describe("assertProvenanced", () => {
     expect(() => assertProvenanced(goodClaim)).not.toThrow();
   });
 });
+
+describe("the archived-figure shape", () => {
+  // The v0.2 archive and the diligence dossier store provenance by reference rather than
+  // inlining a chain onto every row. A number carrying the three references is citable —
+  // a reader can take the run id and reproduce it — so it satisfies the guard. A number
+  // carrying neither shape still does not.
+  const archived = {
+    label: "Gate delta, AUC-PR",
+    value: 0.141,
+    display: "+0.1410",
+    source: "validation.json#gate_delta",
+    run_id: "run_01KZX4NMMJARJXV7GS71TPF2ZF",
+    method_id: "eii.diligence_dossier",
+    source_set_id: "set_78387a5dd5f0341a",
+  };
+
+  it("accepts a value that carries run, method and source set", () => {
+    expect(findProvenanceViolations(archived)).toEqual([]);
+  });
+
+  it("still refuses a value carrying neither shape", () => {
+    const { run_id, ...bare } = archived;
+    void run_id;
+    expect(findProvenanceViolations(bare).length).toBeGreaterThan(0);
+  });
+
+  it("does not accept the references when they are empty strings", () => {
+    expect(
+      findProvenanceViolations({ ...archived, source_set_id: "" }).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("says both shapes were missing rather than only naming the claim shape", () => {
+    const { method_id, ...bare } = archived;
+    void method_id;
+    expect(findProvenanceViolations(bare)[0]?.reason).toContain("archived-figure");
+  });
+});

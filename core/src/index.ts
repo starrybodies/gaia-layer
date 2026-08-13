@@ -9,3 +9,4 @@
 export * from "./generated/index.js";
 export * from "./guards.js";
 export * from "./constants.js";
+export * from "./h3-geometry.js";
